@@ -97,6 +97,11 @@
       <artifactId>jts</artifactId>
       <version>1.13</version>
     </dependency>
+    <dependency>
+        <groupId>com.amazonaws</groupId>
+        <artifactId>amazon-kinesis-producer</artifactId>
+        <version>0.10.2</version>
+    </dependency>
   </dependencies>
 
   <build>
