@@ -28,6 +28,13 @@ public class MaxwellConfig extends AbstractConfig {
 	public String kafkaPartitionKey;
 	public String bootstrapperType;
 
+    public String kinesisAccessKeyId;
+    public String kinesisSecretKey;
+    public int kinesisMaxBufferedTime;
+    public int kinesisMaxConnections;
+    public int kinesisRequestTimeout;
+    public String kinesisRegion;
+
 	public String outputFile;
 	public String log_level;
 
@@ -69,13 +76,19 @@ public class MaxwellConfig extends AbstractConfig {
 
 		parser.accepts( "__separator_3" );
 
-		parser.accepts( "producer", "producer type: stdout|file|kafka" ).withRequiredArg();
+		parser.accepts( "producer", "producer type: stdout|file|kafka|kinesis" ).withRequiredArg();
 		parser.accepts( "output_file", "output file for 'file' producer" ).withRequiredArg();
 		parser.accepts( "kafka.bootstrap.servers", "at least one kafka server, formatted as HOST:PORT[,HOST:PORT]" ).withRequiredArg();
 		parser.accepts( "kafka_partition_by", "database|table|primary_key, kafka producer assigns partition by hashing the specified parameter").withRequiredArg();
 		parser.accepts( "kafka_partition_hash", "default|murmur3, hash function for partitioning").withRequiredArg();
 		parser.accepts( "kafka_topic", "optionally provide a topic name to push to. default: maxwell").withOptionalArg();
 		parser.accepts( "kafka_key_format", "how to format the kafka key; array|hash").withOptionalArg();
+        parser.accepts( "kinesis_access_key_id", "optionally provide kinesis access key id").withOptionalArg();
+        parser.accepts( "kinesis_secret_key", "optionally provide kinesis secret key").withOptionalArg();
+        parser.accepts( "kinesis_max_buffered_time", "optionally provide kinesis max buffered time").withOptionalArg();
+        parser.accepts( "kinesis_max_connections", "optionally provide kinesis max connections").withOptionalArg();
+        parser.accepts( "kinesis_request_timeout", "optionally provide kinesis request timeout").withOptionalArg();
+        parser.accepts( "kinesis_region", "optionally provide kinesis region").withOptionalArg();
 
 		parser.accepts( "__separator_4" );
 
@@ -167,6 +180,24 @@ public class MaxwellConfig extends AbstractConfig {
 		if ( options.has("kafka_partition_hash"))
 			this.kafkaPartitionHash = (String) options.valueOf("kafka_partition_hash");
 
+        if ( options.has("kinesis_access_key_id"))
+            this.kinesisAccessKeyId = (String) options.valueOf("kinesis_access_key_id");
+
+        if ( options.has("kinesis_secret_key"))
+            this.kinesisSecretKey = (String) options.valueOf("kinesis_secret_key");
+
+        if ( options.has("kinesis_max_buffered_time"))
+            this.kinesisMaxBufferedTime = (int) options.valueOf("kinesis_max_buffered_time");
+
+        if ( options.has("kinesis_max_connections"))
+            this.kinesisMaxConnections = (int) options.valueOf("kinesis_max_connections");
+
+        if ( options.has("kinesis_request_timeout"))
+            this.kinesisRequestTimeout = (int) options.valueOf("kinesis_request_timeout");
+
+        if ( options.has("kinesis_region"))
+            this.kinesisRegion = (String) options.valueOf("kinesis_region");
+
 		if ( options.has("output_file"))
 			this.outputFile = (String) options.valueOf("output_file");
 
@@ -250,6 +281,13 @@ public class MaxwellConfig extends AbstractConfig {
 		this.blacklistDatabases = p.getProperty("blacklist_dbs");
 		this.blacklistTables = p.getProperty("blacklist_tables");
 
+        this.kinesisAccessKeyId = p.getProperty("kinesis_access_key_id");
+        this.kinesisSecretKey = p.getProperty("kinesis_secret_key");
+        this.kinesisMaxBufferedTime = Integer.valueOf(p.getProperty("kinesis_max_buffered_time", "0"));
+        this.kinesisMaxConnections = Integer.valueOf(p.getProperty("kinesis_max_connections", "0"));
+        this.kinesisRequestTimeout = Integer.valueOf(p.getProperty("kinesis_request_timeout", "0"));
+        this.kinesisRegion = p.getProperty("kinesis_region");
+
 		if ( p.containsKey("log_level") )
 			this.log_level = parseLogLevel(p.getProperty("log_level"));
 
@@ -290,7 +328,26 @@ public class MaxwellConfig extends AbstractConfig {
 		} else if ( this.producerType.equals("file")
 				&& this.outputFile == null) {
 			usage("please specify --output_file=FILE to use the file producer");
-		}
+		} else if ( this.producerType.equals("kinesis") ) {
+            if ( this.kinesisAccessKeyId == null ) {
+                usage("You must provide aws kinesis access key id for using kinesis as output sink!");
+            }
+            if ( this.kinesisSecretKey == null ) {
+                usage("You must provide aws kinesis secret key for using kinesis as output sink!");
+            }
+            if ( this.kinesisMaxBufferedTime == 0 ) {
+                usage("You must provide aws kinesis max buffered time for using kinesis as output sink!");
+            }
+            if ( this.kinesisMaxConnections == 0 ) {
+                usage("You must provide aws kinesis max connections for using kinesis as output sink!");
+            }
+            if ( this.kinesisRequestTimeout == 0 ) {
+                usage("You must provide aws kinesis request timeout for using kinesis as output sink!");
+            }
+            if ( this.kinesisRegion == null ) {
+                usage("You must provide aws kinesis region for using kinesis as output sink!");
+            }
+        }
 
 		if ( !this.bootstrapperType.equals("async")
 				&& !this.bootstrapperType.equals("sync")
