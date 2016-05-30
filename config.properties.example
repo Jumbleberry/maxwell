@@ -1,7 +1,7 @@
 # tl;dr config
 log_level=info
 
-producer=kafka
+producer=kinesis
 kafka.bootstrap.servers=localhost:9092
 
 # mysql login info
@@ -12,8 +12,8 @@ password=maxwell
 
 ######### general stuff #############
 
-# choose where to produce data to. currently this is one of: stdout|file|kafka
-#producer=kafka
+# choose where to produce data to. currently this is one of: stdout|file|kafka|kinesis
+#producer=kinesis
 
 # set the log level.  note that you can configure things further in log4j2.xml
 #log_level=DEBUG # [DEBUG, INFO, WARN, ERROR]
@@ -84,6 +84,15 @@ password=maxwell
 #kafka.acks=1
 #kafka.compression.type=gzip
 #kafka.batch.size=16384
+
+
+######### kinesis stuff ###############
+#kinesis_access_key_id=placeholder
+#kinesis_secret_key=placeholder
+#kinesis_max_buffered_time=placeholder
+#kinesis_max_connections=placeholder
+#kinesis_request_timeout=placeholder
+#kinesis_region=placeholder
 
 
 ######### filter stuff ###############
