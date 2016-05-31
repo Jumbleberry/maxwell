@@ -1,7 +1,7 @@
 package com.zendesk.maxwell.producer;
 
 import java.util.HashMap;
-import java.util.LinkedList;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicLong;
 
 import com.zendesk.maxwell.MaxwellContext;
@@ -17,7 +17,7 @@ public class KinesisProducer extends AbstractProducer {
     static final Logger LOGGER = LoggerFactory.getLogger(KinesisProducer.class);
     static final AtomicLong counter = new AtomicLong();
     private final com.amazonaws.services.kinesis.producer.KinesisProducer kinesis;
-    private final HashMap<String, LinkedList<RowMap>> messageQueue;
+    private final HashMap<String, LinkedBlockingQueue<RowMap>> messageQueue;
 
     public KinesisProducer(
             MaxwellContext context,
@@ -43,7 +43,7 @@ public class KinesisProducer extends AbstractProducer {
         this.kinesis = new com.amazonaws.services.kinesis.producer.KinesisProducer(config);
         
         // Set up message queue
-        this.messageQueue = new HashMap<String, LinkedList<RowMap>>();
+        this.messageQueue = new HashMap<String, LinkedBlockingQueue<RowMap>>();
     }
 
     @Override
@@ -52,10 +52,10 @@ public class KinesisProducer extends AbstractProducer {
         String key = r.getTable() + r.pkAsConcatString();
         // Initialize list if none exist
         if (! messageQueue.containsKey(key)) {
-        	messageQueue.put(key, new LinkedList<RowMap>());
+        	messageQueue.put(key, new LinkedBlockingQueue<RowMap>());
         }
     	// Add to it's own list in the message queue
-        LinkedList<RowMap> list = messageQueue.get(key);
+        LinkedBlockingQueue<RowMap> list = messageQueue.get(key);
         list.add(r);
     }
     
