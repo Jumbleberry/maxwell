@@ -18,6 +18,7 @@ public class KinesisProducer extends AbstractProducer {
     static final AtomicLong counter = new AtomicLong();
     private final com.amazonaws.services.kinesis.producer.KinesisProducer kinesis;
     private final HashMap<String, LinkedBlockingQueue<RowMap>> messageQueue;
+    private int messageQueueSize;
 
     public KinesisProducer(
             MaxwellContext context,
@@ -44,6 +45,7 @@ public class KinesisProducer extends AbstractProducer {
         
         // Set up message queue
         this.messageQueue = new HashMap<String, LinkedBlockingQueue<RowMap>>();
+        this.messageQueueSize = 0;
     }
 
     @Override
@@ -57,6 +59,7 @@ public class KinesisProducer extends AbstractProducer {
     	// Add to it's own list in the message queue
         LinkedBlockingQueue<RowMap> list = messageQueue.get(key);
         list.add(r);
+        ++this.messageQueueSize;
     }
     
     private void pushToKinesis() throws Exception {
