@@ -216,9 +216,15 @@ public class MaxwellReplicator extends RunLoopProcess {
 						continue;
 					}
 
+					Table table = tableCache.getTable(event.getTableId());
+					
 					if ( event.matchesFilter() ) {
-						for ( RowMap r : event.jsonMaps() )
+						for ( RowMap r : event.jsonMaps() ) {				
+							r.setColumnList(table.getColumnList());
+							r.setTableId(event.getTableId());
+							
 							buffer.add(r);
+						}
 					}
 
 					setReplicatorPosition(event);

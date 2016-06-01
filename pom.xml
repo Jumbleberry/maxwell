@@ -102,6 +102,16 @@
         <artifactId>amazon-kinesis-producer</artifactId>
         <version>0.10.2</version>
     </dependency>
+    <dependency>
+      <groupId>org.apache.avro</groupId>
+      <artifactId>avro</artifactId>
+      <version>1.8.0</version>
+    </dependency>
+  	<dependency>
+  		<groupId>org.json</groupId>
+  		<artifactId>json</artifactId>
+  		<version>20160212</version>
+  	</dependency>    
   </dependencies>
 
   <build>

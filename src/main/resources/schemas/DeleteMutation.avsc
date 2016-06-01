@@ -1,0 +1,40 @@
+{
+  "namespace": "com.jumbleberry.kinesis",
+  "type": "record",
+  "name": "DeleteMutation",
+  "fields": [
+	    {
+			"name": "database",
+			"type": "string"
+		},
+		{
+			"name": "table",
+			"type": "string"
+		},
+		{
+			"name": "tableId",
+			"type": "long"
+		},
+		{
+		    "name": "txid",
+		    "type": ["null", {"name": "Guid", "type": "fixed", "size":16}],
+		    "default": "null"
+		},
+		{
+			"name": "bytes",
+			"type": {"type": "map", "values": "bytes"}
+		},
+		{
+			"name": "integers",
+			"type": {"type": "map", "values": "int"}
+		},
+		{
+			"name": "strings",
+			"type": {"type": "map", "values": "string"}
+		},
+		{
+			"name": "longs",
+			"type": {"type": "map", "values": "long"}
+		}
+	]
+}

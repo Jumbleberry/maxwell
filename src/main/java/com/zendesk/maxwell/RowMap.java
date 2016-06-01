@@ -2,12 +2,17 @@ package com.zendesk.maxwell;
 
 import com.fasterxml.jackson.core.*;
 import com.google.code.or.common.glossary.Column;
+import com.jumbleberry.kinesis.Serializer;
+import com.zendesk.maxwell.schema.columndef.ColumnDef;
+
+import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.Serializable;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -33,6 +38,9 @@ public class RowMap implements Serializable {
 	private final LinkedHashMap<String, Object> oldData;
 	private final List<String> pkColumns;
 	private List<Pattern> excludeColumns;
+
+	private HashMap<String, String> tableSchema;
+	private Long tableId;
 
 	private static final JsonFactory jsonFactory = new JsonFactory();
 
@@ -223,6 +231,71 @@ public class RowMap implements Serializable {
 		return jsonFromStream();
 	}
 
+	public byte[] toAvro() throws IOException {
+		String[] types = {"strings", "integers", "longs", "bytes"};
+		JsonGenerator g = jsonGeneratorThreadLocal.get();
+
+		g.writeStartObject();
+
+		g.writeStringField("database", this.database);
+		g.writeStringField("table", this.table);
+		g.writeNumberField("tableId", this.tableId);
+		// TODO: Figure out what this is
+//		g.writeStringField("txid", null);
+
+		if ( this.excludeColumns != null ) {
+			// NOTE: to avoid concurrent modification.
+			Set<String> keys = new HashSet<String>();
+			keys.addAll(this.data.keySet());
+			keys.addAll(this.oldData.keySet());
+
+			for ( Pattern p : this.excludeColumns ) {
+				for ( String key : keys ) {
+					if ( p.matcher(key).matches() ) {
+						this.data.remove(key);
+						this.oldData.remove(key);
+					}
+				}
+			}
+		}
+
+		HashMap<String, HashMap<String, Object>> dataContainer = Serializer.sortData(tableSchema, data);
+		for (int i = 0; i < types.length; i++) {
+			String type = types[i];
+			// We only need "new_" if we're updating
+			String prefix = this.oldData.isEmpty() ? "" : "new_";
+
+			g.writeArrayFieldStart(prefix + type);
+			g.writeStartObject();
+			for (String key: dataContainer.get(type).keySet()) {
+				g.writeObjectField(key, dataContainer.get(type).get(key));
+			}
+			g.writeEndObject();
+			g.writeEndArray();;
+		}
+
+		if (!this.oldData.isEmpty()) {
+			HashMap<String, HashMap<String, Object>> oldDataContainer = Serializer.sortData(tableSchema, oldData);
+
+			for (int i = 0; i < types.length; i++) {
+				String type = types[i];
+
+				g.writeArrayFieldStart("old_" + type);
+				g.writeStartObject();
+				for (String key: oldDataContainer.get(type).keySet()) {
+					g.writeObjectField(key, oldDataContainer.get(type).get(key));
+				}
+				g.writeEndObject();
+				g.writeEndArray();
+			}
+		}
+
+		g.writeEndObject();
+		g.flush();
+
+		return Serializer.serializeAvro(rowType, new JSONObject(jsonFromStream()));
+	}
+
 	private String jsonFromStream() {
 		ByteArrayOutputStream b = byteArrayThreadLocal.get();
 		String s = b.toString();
@@ -280,5 +353,17 @@ public class RowMap implements Serializable {
 
 	public boolean hasData(String name) {
 		return this.data.containsKey(name);
+	}
+
+	public void setColumnList(List<ColumnDef> columnList) {
+		this.tableSchema = new HashMap<String, String>();
+
+		for (int i = 0; i < columnList.size(); i++) {
+			this.tableSchema.put(columnList.get(i).getName(), columnList.get(i).getType());
+		}
+	}
+
+	public void setTableId(Long tableId) {
+		this.tableId = tableId;
 	}
 }

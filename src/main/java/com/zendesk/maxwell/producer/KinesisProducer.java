@@ -1,5 +1,6 @@
 package com.zendesk.maxwell.producer;
 
+import java.io.File;
 import java.util.HashMap;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicLong;
@@ -11,6 +12,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.amazonaws.services.kinesis.producer.KinesisProducerConfiguration;
+import com.google.common.io.Files;
 
 public class KinesisProducer extends AbstractProducer {
 
@@ -62,9 +64,15 @@ public class KinesisProducer extends AbstractProducer {
         ++this.messageQueueSize;
     }
     
-    private void pushToKinesis() throws Exception {
+    private void pushToKinesis(RowMap r) throws Exception {
     	// Convert RowMap to Avro here
+		byte[] avro = r.toAvro();
+
     	// Use addUserRecord to push data to Kinesis
+		// TODO: send it to Kinesis
+		File output = new File("/tmp/test.avro");
+		Files.write(avro, output);		
+		
     	// Upon success, this.context.setPosition(r);
     	// Upon failure, get minimum position of binlog and re-try
     }
