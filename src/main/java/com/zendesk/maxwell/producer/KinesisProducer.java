@@ -12,6 +12,7 @@ import com.zendesk.maxwell.RowMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.amazonaws.auth.SystemPropertiesCredentialsProvider;
 import com.amazonaws.services.kinesis.producer.KinesisProducerConfiguration;
 import com.amazonaws.services.kinesis.producer.UserRecordResult;
 import com.google.common.util.concurrent.FutureCallback;
@@ -48,7 +49,9 @@ public class KinesisProducer extends AbstractProducer {
            .setRecordMaxBufferedTime(kinesisMaxBufferedTime)
            .setMaxConnections(kinesisMaxConnections)
            .setRequestTimeout(kinesisRequestTimeout)
-           .setRegion(kinesisRegion);
+           .setRegion(kinesisRegion)
+           .setCredentialsProvider(new SystemPropertiesCredentialsProvider());
+        
         this.kinesis = new com.amazonaws.services.kinesis.producer.KinesisProducer(config);
         
         // Set up message queue
