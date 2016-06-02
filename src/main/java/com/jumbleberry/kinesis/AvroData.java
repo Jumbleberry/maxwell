@@ -18,13 +18,20 @@ public class AvroData {
 	private final String schemaDirectory = "/schemas/";
 	private final String schemaSuffix = "Mutation.avsc";
 	private final Schema schema;
-	private static final String[] schemaDataTypes = {"strings", "integers", "longs", "bytes"};
+	private static final String[] schemaDataTypes = {"strings", "integers", "longs", "bytes"};	
 	
 	private GenericRecord record;
+	private HashMap<String, String> header;
 	
 	public AvroData(String rowType) throws IOException {
-		schema = getSchema(ucfirst(rowType) + schemaSuffix);
-		record = new GenericData.Record(schema);
+		String schemaName = ucfirst(rowType) + schemaSuffix;
+		
+		this.schema = getSchema(schemaName);
+		this.record = new GenericData.Record(schema);				
+		
+		this.header = new HashMap<String, String>();
+		this.header.put("schema", schemaName);
+		this.header.put("action", rowType);
 	}
 	
 	/**
@@ -102,15 +109,26 @@ public class AvroData {
 		DatumWriter<GenericRecord> datumWriter = new GenericDatumWriter<GenericRecord>(schema);								
 		
 		// Write the table name (so the reader knows what schema to use) and the data		
-		JSONObject jsonObject = new JSONObject(schema.toString()); // Apparently a schema cannot access it's own properties
-		bencoder.writeString(jsonObject.getString("name"));
+		JSONObject jsonObject = new JSONObject(schema.toString()); // Apparently a schema cannot access it's own properties		
+		
+		// Write header
+		bencoder.setItemCount(header.size());
+		bencoder.writeMapStart();
+		for (String key : header.keySet() ) {
+			bencoder.startItem();
+			bencoder.writeString(key);
+			bencoder.writeString(header.get(key));
+		}
+		bencoder.writeMapEnd();				
+				
+		// Write record
 		datumWriter.write(record, bencoder);						
 		
 		// Write to the output stream
 		bencoder.flush();		
 						
 		return baos.toByteArray();		
-	}			
+	}	
 	
 	/**
 	 * Get a schema for the type of mySQL action
