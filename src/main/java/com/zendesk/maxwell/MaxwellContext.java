@@ -180,7 +180,8 @@ public class MaxwellContext {
                 this.config.kinesisMaxBufferedTime,
                 this.config.kinesisMaxConnections,
                 this.config.kinesisRequestTimeout,
-                this.config.kinesisRegion
+                this.config.kinesisRegion,
+                this.config.kinesisShards
                 );
 		case "stdout":
 		default:

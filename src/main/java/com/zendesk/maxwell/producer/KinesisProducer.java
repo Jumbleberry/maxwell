@@ -21,6 +21,7 @@ public class KinesisProducer extends AbstractProducer {
     private final com.amazonaws.services.kinesis.producer.KinesisProducer kinesis;
     private final HashMap<String, LinkedBlockingQueue<RowMap>> messageQueue;
     private int messageQueueSize;
+    private String[] shards;
 
     public KinesisProducer(
             MaxwellContext context,
@@ -29,7 +30,8 @@ public class KinesisProducer extends AbstractProducer {
             int kinesisMaxBufferedTime,
             int kinesisMaxConnections,
             int kinesisRequestTimeout,
-            String kinesisRegion
+            String kinesisRegion,
+            String kinesisShards
         ) {
         super(context);
 
@@ -48,23 +50,56 @@ public class KinesisProducer extends AbstractProducer {
         // Set up message queue
         this.messageQueue = new HashMap<String, LinkedBlockingQueue<RowMap>>();
         this.messageQueueSize = 0;
+        this.shards = kinesisShards.split(";");
     }
 
     @Override
     public void push(RowMap r) throws Exception {
         // Get partition key
         String key = r.getTable() + r.pkAsConcatString();
+
         // Initialize list if none exist
         if (! messageQueue.containsKey(key)) {
         	messageQueue.put(key, new LinkedBlockingQueue<RowMap>());
         }
+        
     	// Add to it's own list in the message queue
         LinkedBlockingQueue<RowMap> list = messageQueue.get(key);
         list.add(r);
         ++this.messageQueueSize;
+
+        // If this is the only element in list
+        if (list.size() == 1) {
+            // pushToKinesis(getShard(r.getTable()), key, r);
+            System.out.println("Shard name is " + getShard(r.getTable()));
+        }
+    }
+
+    /**
+     * Get shard by table name
+     * The default shard is other
+     * 
+     * @param  String   table
+     * @return String   shardName
+     */
+    private String getShard(String table)
+    {
+        if (shards == null) {
+            return "other";
+        }
+
+        for ( String shard : shards ) {
+            String shardName = shard.split(":")[0];
+            String tableName = shard.split(":")[1];
+            if (table == tableName) {
+                return shardName;
+            }
+        }
+
+        return "other";
     }
     
-    private void pushToKinesis(RowMap r) throws Exception {
+    private void pushToKinesis(String shard, String partitionKey, RowMap r) throws Exception {
     	// Convert RowMap to Avro here
 		byte[] avro = r.toAvro();
 
