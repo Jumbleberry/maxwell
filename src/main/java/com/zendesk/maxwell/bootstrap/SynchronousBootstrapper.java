@@ -108,8 +108,7 @@ public class SynchronousBootstrapper extends AbstractBootstrapper {
 	private RowMap bootstrapEventRowMap(String type, Table table, BinlogPosition position) {
 		return new RowMap(
 				type,
-				table.getDatabase(),
-				table.getName(),
+				table,
 				System.currentTimeMillis() / 1000,
 				table.getPKList(),
 				position);
