@@ -93,6 +93,7 @@ password=maxwell
 #kinesis_max_connections=placeholder
 #kinesis_request_timeout=placeholder
 #kinesis_region=placeholder
+#kinesis_stream_name=placeholder
 
 
 ######### filter stuff ###############

@@ -181,7 +181,7 @@ public class MaxwellContext {
                 this.config.kinesisMaxConnections,
                 this.config.kinesisRequestTimeout,
                 this.config.kinesisRegion,
-                this.config.kinesisShards
+                this.config.kinesisStreamName
                 );
 		case "stdout":
 		default:

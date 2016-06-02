@@ -34,7 +34,7 @@ public class MaxwellConfig extends AbstractConfig {
     public int kinesisMaxConnections;
     public int kinesisRequestTimeout;
     public String kinesisRegion;
-    public String kinesisShards;
+    public String kinesisStreamName;
 
 	public String outputFile;
 	public String log_level;
@@ -90,7 +90,7 @@ public class MaxwellConfig extends AbstractConfig {
         parser.accepts( "kinesis_max_connections", "optionally provide kinesis max connections").withOptionalArg();
         parser.accepts( "kinesis_request_timeout", "optionally provide kinesis request timeout").withOptionalArg();
         parser.accepts( "kinesis_region", "optionally provide kinesis region").withOptionalArg();
-        parser.accepts( "kinesis_shards", "optionally provide kinesis shards").withOptionalArg();
+        parser.accepts( "kinesis_stream_name", "optionally provide kinesis stream name").withOptionalArg();
 
 		parser.accepts( "__separator_4" );
 
@@ -200,8 +200,8 @@ public class MaxwellConfig extends AbstractConfig {
         if ( options.has("kinesis_region"))
             this.kinesisRegion = (String) options.valueOf("kinesis_region");
 
-        if ( options.has("kinesis_shards"))
-            this.kinesisShards = (String) options.valueOf("kinesis_shards");
+        if ( options.has("kinesis_stream_name"))
+            this.kinesisStreamName = (String) options.valueOf("kinesis_stream_name");
 
 		if ( options.has("output_file"))
 			this.outputFile = (String) options.valueOf("output_file");
@@ -292,7 +292,7 @@ public class MaxwellConfig extends AbstractConfig {
         this.kinesisMaxConnections = Integer.valueOf(p.getProperty("kinesis_max_connections", "0"));
         this.kinesisRequestTimeout = Integer.valueOf(p.getProperty("kinesis_request_timeout", "0"));
         this.kinesisRegion = p.getProperty("kinesis_region");
-        this.kinesisShards = p.getProperty("kinesis_shards");
+        this.kinesisStreamName = p.getProperty("kinesis_stream_name");
 
 		if ( p.containsKey("log_level") )
 			this.log_level = parseLogLevel(p.getProperty("log_level"));

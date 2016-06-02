@@ -26,7 +26,7 @@ public class KinesisProducer extends AbstractProducer {
     private final com.amazonaws.services.kinesis.producer.KinesisProducer kinesis;
     private final HashMap<String, LinkedBlockingQueue<RowMap>> messageQueue;
     private int messageQueueSize;
-    private String[] shards;
+    private String streamName;
 
     public KinesisProducer(
             MaxwellContext context,
@@ -36,7 +36,7 @@ public class KinesisProducer extends AbstractProducer {
             int kinesisMaxConnections,
             int kinesisRequestTimeout,
             String kinesisRegion,
-            String kinesisShards
+            String kinesisStreamName
         ) {
         super(context);
 
@@ -57,7 +57,7 @@ public class KinesisProducer extends AbstractProducer {
         // Set up message queue
         this.messageQueue = new HashMap<String, LinkedBlockingQueue<RowMap>>();
         this.messageQueueSize = 0;
-        this.shards = kinesisShards.split(";");
+        this.streamName = kinesisStreamName;
     }
 
     @Override
@@ -77,46 +77,19 @@ public class KinesisProducer extends AbstractProducer {
 
         // If this is the only element in list
         if (list.size() == 1) {
-            pushToKinesis(getShard(r.getTable()), key, r);
+            pushToKinesis(key, r);
         }
-    }
-
-    /**
-     * Get shard by table name
-     * The default shard is other
-     * 
-     * @param  String   table
-     * @return String   shardName
-     */
-    private String getShard(String table)
-    {
-    	String defaultShard = "other";
-    	
-        if (shards == null) {
-            return defaultShard;
-        }
-
-        for ( String shard : shards ) {
-            String shardName = shard.split(":")[0];
-            String tableName = shard.split(":")[1];
-            if (table == tableName) {
-                return shardName;
-            }
-        }
-
-        return defaultShard;
     }
     
     /**
      * Push data to Kinesis
      * 
-     * @param  String   shard
      * @param  String   partitionKey 
      * @param  RowMap   r
      * 
      * @throws Exception    
      */
-    private void pushToKinesis(String shard, String partitionKey, RowMap r) throws Exception {
+    private void pushToKinesis(String partitionKey, RowMap r) throws Exception {
     	
         ByteBuffer data = ByteBuffer.wrap(r.toAvro().toByteArray());
 
@@ -135,7 +108,7 @@ public class KinesisProducer extends AbstractProducer {
             };
 
         ListenableFuture<UserRecordResult> response =
-                this.kinesis.addUserRecord(shard, partitionKey, data);
+                this.kinesis.addUserRecord(streamName, partitionKey, data);
         System.out.println("Writing data...");
 
         Futures.addCallback(response, callBack);        
