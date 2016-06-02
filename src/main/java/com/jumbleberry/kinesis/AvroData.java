@@ -18,6 +18,7 @@ public class AvroData {
 	private final String schemaDirectory = "/schemas/";
 	private final String schemaSuffix = "Mutation.avsc";
 	private final Schema schema;
+	private static final String[] schemaDataTypes = {"strings", "integers", "longs", "bytes"};
 	
 	private GenericRecord record;
 	
@@ -138,7 +139,7 @@ public class AvroData {
 	 * @return GenericRecord
 	 */
 	public GenericRecord getRecord() {
-		return record;
+		return this.record;
 	}
 	
 	/**
@@ -147,7 +148,16 @@ public class AvroData {
 	 * @return Schema
 	 */
 	public Schema getSchema() {
-		return schema;
+		return this.schema;
+	}
+	
+	/**
+	 * Get the list of data types for the schema
+	 * 
+	 * @return String[]
+	 */
+	public static String[] getSchemaDataTypes() {
+		return schemaDataTypes;
 	}
 	
 	/**

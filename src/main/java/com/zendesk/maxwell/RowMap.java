@@ -231,7 +231,7 @@ public class RowMap implements Serializable {
 	}
 
 	public AvroData toAvro() throws IOException {
-		String[] types = {"strings", "integers", "longs", "bytes"};		
+		String[] types = AvroData.getSchemaDataTypes();		
 		AvroData avroData = new AvroData(rowType);		
 
 		avroData.put("database", this.database);
