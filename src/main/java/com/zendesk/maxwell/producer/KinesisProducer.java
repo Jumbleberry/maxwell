@@ -1,6 +1,7 @@
 package com.zendesk.maxwell.producer;
 
 import java.io.File;
+import java.nio.ByteBuffer;
 import java.util.HashMap;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicLong;
@@ -12,8 +13,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.amazonaws.services.kinesis.producer.KinesisProducerConfiguration;
-import com.google.common.io.Files;
-import com.jumbleberry.kinesis.AvroData;
+import com.amazonaws.services.kinesis.producer.UserRecordResult;
+import com.google.common.util.concurrent.FutureCallback;
+import com.google.common.util.concurrent.Futures;
+import com.google.common.util.concurrent.ListenableFuture;
 
 public class KinesisProducer extends AbstractProducer {
 
@@ -71,8 +74,7 @@ public class KinesisProducer extends AbstractProducer {
 
         // If this is the only element in list
         if (list.size() == 1) {
-            // pushToKinesis(getShard(r.getTable()), key, r);
-            System.out.println("Shard name is " + getShard(r.getTable()));
+            pushToKinesis(getShard(r.getTable()), key, r);
         }
     }
 
@@ -85,8 +87,10 @@ public class KinesisProducer extends AbstractProducer {
      */
     private String getShard(String table)
     {
+    	String defaultShard = "other";
+    	
         if (shards == null) {
-            return "other";
+            return defaultShard;
         }
 
         for ( String shard : shards ) {
@@ -97,19 +101,40 @@ public class KinesisProducer extends AbstractProducer {
             }
         }
 
-        return "other";
+        return defaultShard;
     }
     
+    /**
+     * Push data to Kinesis
+     * 
+     * @param  String   shard
+     * @param  String   partitionKey 
+     * @param  RowMap   r
+     * 
+     * @throws Exception    
+     */
     private void pushToKinesis(String shard, String partitionKey, RowMap r) throws Exception {
-    	// Convert RowMap to Avro here
-    	AvroData avroData = r.toAvro();
+    	
+        ByteBuffer data = ByteBuffer.wrap(r.toAvro().toByteArray());
 
-    	// Use addUserRecord to push data to Kinesis
-		// TODO: send it to Kinesis
-		File output = new File("/tmp/test.avro");
-		Files.write(avroData.toByteArray(), output);		
-		
-    	// Upon success, this.context.setPosition(r);
-    	// Upon failure, get minimum position of binlog and re-try
+        FutureCallback<UserRecordResult> callBack = 
+            new FutureCallback<UserRecordResult>() {
+                @Override public void onFailure(Throwable t) {
+    	           // Upon failure, get minimum position of binlog and re-try
+                    System.out.println("Failed:" + t.toString()); 
+                };     
+                @Override 
+                public void onSuccess(UserRecordResult result) { 
+                   // Upon success, this.context.setPosition(r);
+                    System.out.println("Success: " + result.toString());
+                    // messageQueue.get(partitionKey).remove(r);
+                };
+            };
+
+        ListenableFuture<UserRecordResult> response =
+                this.kinesis.addUserRecord(shard, partitionKey, data);
+        System.out.println("Writing data...");
+
+        Futures.addCallback(response, callBack);        
     }
 }
