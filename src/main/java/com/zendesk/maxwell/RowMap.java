@@ -1,14 +1,10 @@
 package com.zendesk.maxwell;
 
 import com.fasterxml.jackson.core.*;
-import com.google.code.or.common.glossary.Column;
 import com.jumbleberry.kinesis.AvroData;
 import com.zendesk.maxwell.schema.Table;
 import com.zendesk.maxwell.schema.columndef.ColumnDef;
 
-import org.apache.avro.generic.GenericData;
-import org.apache.avro.generic.GenericRecord;
-import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
