@@ -16,13 +16,14 @@ import org.apache.avro.io.EncoderFactory;
 import org.json.JSONObject;
 
 public class AvroData {
-	// TODO: fix this
-	private final String homeDirectory = "/home/dave/JB-Maxwell/src/main/resources/schemas/";
+	private final String schemaDirectory = "/schemas/";
+	private final String schemaSuffix = "Mutation.avsc";
 	private final Schema schema;
+	
 	private GenericRecord record;
 	
 	public AvroData(String rowType) throws IOException {
-		schema = getSchema(homeDirectory + ucfirst(rowType) + "Mutation.avsc");
+		schema = getSchema(ucfirst(rowType) + schemaSuffix);
 		record = new GenericData.Record(schema);
 	}
 	
@@ -118,8 +119,8 @@ public class AvroData {
 	 * @return 
 	 * @throws IOException
 	 */
-	private static Schema getSchema(String schemaFile) throws IOException {					
-		return new Schema.Parser().parse(new File(schemaFile));						
+	private Schema getSchema(String schemaFile) throws IOException {				
+		return new Schema.Parser().parse(AvroData.class.getResourceAsStream(schemaDirectory + schemaFile));								
 	}	
 	
 	/**
