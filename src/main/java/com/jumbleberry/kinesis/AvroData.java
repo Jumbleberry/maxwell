@@ -1,21 +1,27 @@
 package com.jumbleberry.kinesis;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.Map;
 
 import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericData;
+import org.apache.avro.generic.GenericDatumReader;
 import org.apache.avro.generic.GenericDatumWriter;
 import org.apache.avro.generic.GenericRecord;
+import org.apache.avro.io.BinaryDecoder;
 import org.apache.avro.io.BinaryEncoder;
+import org.apache.avro.io.DatumReader;
 import org.apache.avro.io.DatumWriter;
+import org.apache.avro.io.DecoderFactory;
 import org.apache.avro.io.EncoderFactory;
 
 public class AvroData {
-	private final String schemaDirectory = "/schemas/";
-	private final String schemaSuffix = "Mutation.avsc";
+	private static final String schemaDirectory = "/schemas/";
+	private static final String schemaSuffix = "Mutation.avsc";
 	private final Schema schema;
 	private static final String[] schemaDataTypes = {"strings", "integers", "longs", "bytes"};	
 	
@@ -133,7 +139,7 @@ public class AvroData {
 	 * @return 
 	 * @throws IOException
 	 */
-	private Schema getSchema(String schemaFile) throws IOException {				
+	private static Schema getSchema(String schemaFile) throws IOException {				
 		return new Schema.Parser().parse(AvroData.class.getResourceAsStream(schemaDirectory + schemaFile));								
 	}	
 	
@@ -183,4 +189,40 @@ public class AvroData {
 	final public static String ucfirst(String subject) {
 	    return Character.toUpperCase(subject.charAt(0)) + subject.substring(1);
 	}		
+	
+	/**
+	 * Deserialize an Avro byte array
+	 * 
+	 * @param byte[] data
+	 * @return String
+	 * @throws IOException
+	 */
+	public static String deserializeByteArray(byte[] data) throws IOException {
+		String response = "";						
+		
+		// Create a binary decoder to read the byte array
+		BinaryDecoder bdecoder = DecoderFactory.get().binaryDecoder(new ByteArrayInputStream(data), null);									
+		
+		// While not EOF
+		while (!bdecoder.isEnd()) {
+			// Read header
+			Map<String, String> header = new HashMap<String, String>();												
+			for(long i = bdecoder.readMapStart(); i != 0; i = bdecoder.mapNext()) {							
+				for (long j = 0; j < i; j++) {							
+					String key = bdecoder.readString();
+					String value = bdecoder.readString();
+					
+					header.put(key, value);
+				}
+			}
+			
+			Schema writeSchema = new Schema.Parser().parse(AvroData.class.getResourceAsStream(schemaDirectory + header.get("schema")));
+			DatumReader<GenericRecord> datumReader = new GenericDatumReader<GenericRecord>(writeSchema);			
+			
+			// Read the entry
+			response += datumReader.read(null, bdecoder);
+		}
+		
+		return response;		
+	}
 }
