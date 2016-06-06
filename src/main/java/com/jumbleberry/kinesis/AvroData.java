@@ -12,7 +12,6 @@ import org.apache.avro.generic.GenericRecord;
 import org.apache.avro.io.BinaryEncoder;
 import org.apache.avro.io.DatumWriter;
 import org.apache.avro.io.EncoderFactory;
-import org.json.JSONObject;
 
 public class AvroData {
 	private final String schemaDirectory = "/schemas/";
@@ -106,10 +105,7 @@ public class AvroData {
 		BinaryEncoder bencoder = EncoderFactory.get().binaryEncoder(baos, null);
 		
 		// Create the writer
-		DatumWriter<GenericRecord> datumWriter = new GenericDatumWriter<GenericRecord>(schema);								
-		
-		// Write the table name (so the reader knows what schema to use) and the data		
-		JSONObject jsonObject = new JSONObject(schema.toString()); // Apparently a schema cannot access it's own properties		
+		DatumWriter<GenericRecord> datumWriter = new GenericDatumWriter<GenericRecord>(schema);										
 		
 		// Write header
 		bencoder.setItemCount(header.size());
