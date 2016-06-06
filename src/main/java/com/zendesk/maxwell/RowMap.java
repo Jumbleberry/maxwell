@@ -36,6 +36,7 @@ public class RowMap implements Serializable {
 	private final LinkedHashMap<String, Object> data;
 	private final LinkedHashMap<String, Object> oldData;
 	private final List<String> pkColumns;
+    private int associatedRows;
 	private List<Pattern> excludeColumns;
 
 	private final HashMap<String, String> tableSchema;
@@ -76,6 +77,7 @@ public class RowMap implements Serializable {
 		this.oldData = new LinkedHashMap<>();
 		this.nextPosition = nextPosition;
 		this.pkColumns = pkColumns;
+        this.associatedRows = 1;
 		this.tableSchema = this.setColumnList(table.getColumnList());
 	}
 
@@ -302,6 +304,14 @@ public class RowMap implements Serializable {
 	public boolean isTXCommit() {
 		return this.txCommit;
 	}
+
+    public int getAssociatedRows() {
+        return this.associatedRows;
+    }
+
+    public void setAssociatedRows(int num) {
+        this.associatedRows = num;
+    }
 
 	public String getDatabase() {
 		return database;
