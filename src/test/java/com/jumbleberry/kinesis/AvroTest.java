@@ -75,7 +75,7 @@ public class AvroTest {
 		r.putData("varchar_field", "var char test");		
 		r.putData("float_field", "1.11");
 		r.putData("double_field", "22.222");
-		r.putData("bigint_field", 1234567891011L);
+		r.putData("bigint_field", 123456789);
 		r.putData("datetime_field", "2016-06-06 15:06:00");
 	}
 	
@@ -85,7 +85,7 @@ public class AvroTest {
 		r.putOldData("varchar_field", "test var char");		
 		r.putOldData("float_field", "2.22");
 		r.putOldData("double_field", "33.333");
-		r.putOldData("bigint_field", 1101987654321L);
+		r.putOldData("bigint_field", 11019876);
 		r.putOldData("datetime_field", "2015-05-05 14:01:00");
 	}
 }

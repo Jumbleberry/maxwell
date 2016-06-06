@@ -81,7 +81,7 @@ public class AvroData {
 					integers.put(key, data.get(key));
 					break;
 				case "bigint":
-					longs.put(key, data.get(key));
+					longs.put(key, new Long((Integer) data.get(key)));
 					break;
 				default:
 					strings.put(key, data.get(key).toString());
