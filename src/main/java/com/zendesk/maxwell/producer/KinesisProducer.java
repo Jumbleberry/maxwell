@@ -1,7 +1,6 @@
 package com.zendesk.maxwell.producer;
 
 import java.nio.ByteBuffer;
-import java.util.HashMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicLong;
@@ -28,6 +27,8 @@ public class KinesisProducer extends AbstractProducer {
     private final ConcurrentHashMap<String, LinkedBlockingQueue<RowMap>> queue;
     private final ConcurrentHashMap<String, RowMap> inFlight;
     private int queueSize;
+    private final int maxQueueSize = 10000;
+    private Object lock;
     private String streamName;
 
     public KinesisProducer(
@@ -83,19 +84,18 @@ public class KinesisProducer extends AbstractProducer {
     }
 
     protected void addToQueue(String key, RowMap r) throws Exception {
+    	if (queueSize > maxQueueSize) {
+    		lock.wait();
+    	}
         queue.get(key).add(r);
         ++queueSize;
-    }
-
-    protected void removeFromQueue(String key, RowMap r) throws Exception {
-        queue.get(key).remove(r);
-        --queueSize;
     }
 
     protected RowMap getNextInQueue(String key, RowMap r) throws InterruptedException {
         LinkedBlockingQueue<RowMap> list = queue.get(key);
         list.take();
         --queueSize;
+        lock.notifyAll();
         return list.peek();
     }
 
