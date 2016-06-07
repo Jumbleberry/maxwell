@@ -9,6 +9,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import com.zendesk.maxwell.MaxwellContext;
 import com.zendesk.maxwell.RowMap;
 
+import org.apache.commons.codec.digest.DigestUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -24,7 +25,7 @@ public class KinesisProducer extends AbstractProducer {
     static final Logger LOGGER = LoggerFactory.getLogger(KinesisProducer.class);
     static final AtomicLong counter = new AtomicLong();
     private final com.amazonaws.services.kinesis.producer.KinesisProducer kinesis;
-    private final HashMap<String, LinkedBlockingQueue<RowMap>> queue;
+    private final ConcurrentHashMap<String, LinkedBlockingQueue<RowMap>> queue;
     private final ConcurrentHashMap<String, RowMap> inFlight;
     private int queueSize;
     private String streamName;
@@ -56,7 +57,7 @@ public class KinesisProducer extends AbstractProducer {
         this.kinesis = new com.amazonaws.services.kinesis.producer.KinesisProducer(config);
         
         // Set up message queue
-        this.queue = new HashMap<String, LinkedBlockingQueue<RowMap>>();
+        this.queue = new ConcurrentHashMap<String, LinkedBlockingQueue<RowMap>>();
         this.queueSize = 0;
         this.inFlight = new ConcurrentHashMap<String, RowMap>();
 
@@ -66,16 +67,19 @@ public class KinesisProducer extends AbstractProducer {
     @Override
     public void push(RowMap r) throws Exception {
         // Get partition key
-        String key = r.getTable() + r.pkAsConcatString();
+        String key = DigestUtils.sha256Hex(r.getTable() + r.pkAsConcatString());
 
-        // Initialize list if none exist
-        // and add to in flight queue
-        if (! queue.containsKey(key)) {
-            queue.put(key, new LinkedBlockingQueue<RowMap>());
-            addToInFlight(key, r);
+        LinkedBlockingQueue<RowMap> localQueue = queue.get(key);
+        if (localQueue == null) 
+            localQueue = new LinkedBlockingQueue<RowMap>();
+       
+        synchronized (localQueue) {
+            queue.putIfAbsent(key, localQueue);
+            addToQueue(key, r);
+            
+            if (localQueue.size() == 1)
+                addToInFlight(key, r);
         }
-        
-        addToQueue(key, r);
     }
 
     protected void addToQueue(String key, RowMap r) throws Exception {
@@ -106,17 +110,17 @@ public class KinesisProducer extends AbstractProducer {
     }
 
     protected void pushToKinesis(String key, RowMap r) throws Exception {
-    	
+        
         ByteBuffer data = ByteBuffer.wrap(r.toAvro().toByteArray());
 
         FutureCallback<UserRecordResult> callBack = 
             (new FutureCallback<UserRecordResult>() {
                 protected String key;
-        		protected RowMap r;
-        	
+                protected RowMap r;
+            
                 @Override public void onFailure(Throwable t) {
-                	// Upon failure, get minimum position of binlog and re-try
-                	// TODO
+                    // Upon failure, get minimum position of binlog and re-try
+                    // TODO
                     System.out.println("Failed:" + t.toString()); 
                 };
 
@@ -124,20 +128,28 @@ public class KinesisProducer extends AbstractProducer {
                 public void onSuccess(UserRecordResult result) {
                     System.out.println("Success: " + result.toString());
                     try {
-                    	removeFromInFlight(key, r);
-                        RowMap next = getNextInQueue(key, r);
-                        if (next != null) {
-                    	   addToInFlight(key, next);
+                        removeFromInFlight(key, r);
+                        LinkedBlockingQueue<RowMap> localQueue = queue.get(key);
+                        
+                        synchronized (localQueue) {
+                            RowMap next = getNextInQueue(key, r);
+                            
+                            if (next != null) {
+                                addToInFlight(key, next);
+                            } else {
+                                queue.remove(key);
+                            }
                         }
-					} catch (Exception e) {
-						e.printStackTrace();
-					}
+                        
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
                 };
                 
                 public FutureCallback<UserRecordResult> setUp(String key, RowMap r) {
                     this.key = key;
-                	this.r = r;
-                	return this;
+                    this.r = r;
+                    return this;
                 }
             }).setUp(key, r);
 
