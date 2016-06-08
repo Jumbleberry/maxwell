@@ -1,10 +1,12 @@
 package com.zendesk.maxwell.producer;
 
 import java.nio.ByteBuffer;
+import java.sql.SQLException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicLong;
 
+import com.zendesk.maxwell.BinlogPosition;
 import com.zendesk.maxwell.MaxwellContext;
 import com.zendesk.maxwell.RowMap;
 
@@ -23,13 +25,26 @@ public class KinesisProducer extends AbstractProducer {
 
     static final Logger LOGGER = LoggerFactory.getLogger(KinesisProducer.class);
     static final AtomicLong counter = new AtomicLong();
-    private final com.amazonaws.services.kinesis.producer.KinesisProducer kinesis;
-    private final ConcurrentHashMap<String, LinkedBlockingQueue<RowMap>> queue;
-    private final ConcurrentHashMap<String, RowMap> inFlight;
-    private int queueSize;
-    private final int maxQueueSize = 10000;
-    private Object lock;
-    private String streamName;
+    protected final com.amazonaws.services.kinesis.producer.KinesisProducer kinesis;
+
+    protected final ConcurrentHashMap<String, LinkedBlockingQueue<RowMap>> queue;
+    protected int queueSize;
+    protected final int maxQueueSize = 10000;
+    protected Object lock;
+    protected final ConcurrentHashMap<String, RowMap> inFlight;
+
+    protected String streamName;
+    protected ConcurrentHashMap<BinlogPosition, Rows> positions;
+
+    public class Rows {
+		public RowMap rowMap;
+        public int count;
+        
+        public Rows(RowMap r, int i) {
+			this.rowMap = r;
+			this.count = i;
+		}
+    }
 
     public KinesisProducer(
             MaxwellContext context,
@@ -63,6 +78,7 @@ public class KinesisProducer extends AbstractProducer {
         this.inFlight = new ConcurrentHashMap<String, RowMap>();
 
         this.streamName = kinesisStreamName;
+        this.positions = new ConcurrentHashMap<BinlogPosition, Rows>();
     }
 
     @Override
@@ -106,7 +122,29 @@ public class KinesisProducer extends AbstractProducer {
     
     protected void removeFromInFlight(String key, RowMap r) throws Exception {
         inFlight.remove(key);
-        context.setPosition(r);
+        updateMinBinlogPosition(r);
+    }
+
+    protected void updateMinBinlogPosition(RowMap r) throws SQLException{
+
+        BinlogPosition newPosition = r.getPosition();
+
+        if (positions.containsKey(newPosition)) {
+            --positions.get(newPosition).count;
+        } else {
+            positions.put(newPosition, new Rows(r, r.getAssociatedRows()-1));
+        }
+
+        BinlogPosition minBinlogPosition = null;
+
+        // Get the min binlog position
+        // In order check how many position has count of 0
+        // The order is very important
+        // Set new position and remove from positions hash map
+
+        if (minBinlogPosition != null) {
+            context.setPosition(positions.get(minBinlogPosition).rowMap);
+        }
     }
 
     protected void pushToKinesis(String key, RowMap r) throws Exception {
@@ -121,7 +159,8 @@ public class KinesisProducer extends AbstractProducer {
                 @Override public void onFailure(Throwable t) {
                     // Upon failure, get minimum position of binlog and re-try
                     // TODO
-                    System.out.println("Failed:" + t.toString()); 
+                    System.out.println("Failed:" + t.toString());
+
                 };
 
                 @Override 
