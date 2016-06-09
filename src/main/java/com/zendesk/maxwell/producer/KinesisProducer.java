@@ -1,7 +1,6 @@
 package com.zendesk.maxwell.producer;
 
 import java.nio.ByteBuffer;
-import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -20,6 +19,8 @@ import com.amazonaws.services.kinesis.producer.UserRecordResult;
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
+import com.googlecode.concurrentlinkedhashmap.ConcurrentLinkedHashMap;
+import com.googlecode.concurrentlinkedhashmap.ConcurrentLinkedHashMap.Builder;
 
 public class KinesisProducer extends AbstractProducer {
 
@@ -29,11 +30,11 @@ public class KinesisProducer extends AbstractProducer {
     protected final ConcurrentHashMap<String, LinkedBlockingQueue<RowMap>> queue;
     protected int queueSize;
     protected final int maxQueueSize = 10000;
-    protected Object lock;
+    protected final Object lock;
     protected final ConcurrentHashMap<String, RowMap> inFlight;
 
     protected String streamName;
-    protected LinkedHashMap<BinlogPosition, Rows> positions;
+    protected ConcurrentLinkedHashMap<BinlogPosition, Rows> positions;
     protected ConcurrentHashMap<RowMap, Integer> attempts;
 
     public class Rows {
@@ -76,9 +77,12 @@ public class KinesisProducer extends AbstractProducer {
         this.queue = new ConcurrentHashMap<String, LinkedBlockingQueue<RowMap>>();
         this.queueSize = 0;
         this.inFlight = new ConcurrentHashMap<String, RowMap>();
+        this.lock = new Object();
 
         this.streamName = kinesisStreamName;
-        this.positions = new LinkedHashMap<BinlogPosition, Rows>();
+        Builder<BinlogPosition, Rows> builder = new Builder<BinlogPosition,Rows>();
+        this.positions = builder.maximumWeightedCapacity(10000).build();
+        this.attempts = new ConcurrentHashMap<RowMap, Integer>();
     }
 
     @Override
@@ -101,7 +105,9 @@ public class KinesisProducer extends AbstractProducer {
 
     protected void addToQueue(String key, RowMap r) throws Exception {
     	if (queueSize > maxQueueSize) {
-    		lock.wait();
+    		synchronized(lock) {
+        		lock.wait();
+    		}
     	}
         queue.get(key).add(r);
         ++queueSize;
@@ -117,7 +123,9 @@ public class KinesisProducer extends AbstractProducer {
         LinkedBlockingQueue<RowMap> list = queue.get(key);
         list.take();
         --queueSize;
-        lock.notifyAll();
+        synchronized(lock) {
+        	lock.notifyAll();
+        }
         return list.peek();
     }
 
@@ -130,7 +138,7 @@ public class KinesisProducer extends AbstractProducer {
         inFlight.remove(key);
         
         synchronized(positions) {
-            updateMinBinlogPosition(r);	
+            updateMinBinlogPosition(r);
         }
     }
 
@@ -167,7 +175,7 @@ public class KinesisProducer extends AbstractProducer {
             }
         }
 
-        if (minBinlogPosition != null) {
+        if (minBinlogPosition != null && positions.containsKey(minBinlogPosition)) {
             context.setPosition(positions.get(minBinlogPosition).rowMap);
         }
     }
@@ -182,6 +190,7 @@ public class KinesisProducer extends AbstractProducer {
                 protected RowMap r;
             
                 @Override public void onFailure(Throwable t) { 
+                    System.out.println("Failure: " + t.toString());
                      if (attempts.containsKey(this.r)) {
                     	 int attemptCount = attempts.get(this.r);
                     	 attempts.put(this.r, attemptCount+1);
