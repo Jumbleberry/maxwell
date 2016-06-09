@@ -87,7 +87,7 @@ public class MaxwellUpdateRowsEvent extends MaxwellAbstractRowsEvent {
 			else
 				rowMap = buildRowMap();
 
-            rowMap.setAssociatedRows(filteredRowsBeforeAndAfter.size());
+            rowMap.setAssociatedRows(filteredRowsBeforeAndAfter().size());
 
 			for ( ColumnWithDefinition cd : new ColumnWithDefinitionList(table, after, event.getUsedColumnsAfter())) {
 				rowMap.putData(cd.definition.getName(), cd.asJSON());

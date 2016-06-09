@@ -189,7 +189,7 @@ public abstract class MaxwellAbstractRowsEvent extends AbstractRowEvent {
 	public List<RowMap> jsonMaps() {
 		ArrayList<RowMap> list = new ArrayList<>();
 		
-		int size = filteredRows.size();
+		int size = filteredRows().size();
 
 		for ( Iterator<Row> ri = filteredRows().iterator() ; ri.hasNext(); ) {
 			Row r = ri.next();
