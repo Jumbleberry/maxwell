@@ -35,6 +35,7 @@ public class KinesisProducer extends AbstractProducer {
 
     protected String streamName;
     protected ConcurrentLinkedHashMap<BinlogPosition, Rows> positions;
+    protected final int maxPositionSize = 10000;
     protected ConcurrentHashMap<RowMap, Integer> attempts;
 
     public class Rows {
@@ -81,7 +82,7 @@ public class KinesisProducer extends AbstractProducer {
 
         this.streamName = kinesisStreamName;
         Builder<BinlogPosition, Rows> builder = new Builder<BinlogPosition,Rows>();
-        this.positions = builder.maximumWeightedCapacity(10000).build();
+        this.positions = builder.maximumWeightedCapacity(this.maxPositionSize).build();
         this.attempts = new ConcurrentHashMap<RowMap, Integer>();
     }
 
@@ -206,7 +207,7 @@ public class KinesisProducer extends AbstractProducer {
                     	 try {
 							addToQueue(this.key, this.r);
 						} catch (Exception e1) {
-							e1.printStackTrace();
+                            LOGGER.error("Exception during re-try: failling add back to queue.");
 						}
                      }
                 };
@@ -233,7 +234,7 @@ public class KinesisProducer extends AbstractProducer {
                         }
                         
                     } catch (Exception e) {
-                        e.printStackTrace();
+                        LOGGER.error("Exception during Kinesis callback on success.");
                     }
                 };
                 
