@@ -68,6 +68,22 @@ public class ConsulLock {
 	}
 	
 	/**
+	 * Checks the heartbeat and makes sure the lock is locked to our session
+	 * 
+	 * @return
+	 */
+	public boolean hasLock(String sessionId) throws ConsulException {
+		if (!heartbeat.isAlive())
+			throw new ConsulException("ConsulHeartbeat died");
+		
+		return hasLockSession(sessionId);
+	}
+	
+	public String getSessionId() {
+		return this.sessionId;
+	}
+	
+	/**
 	 * Release a consul lock
 	 * 
 	 * @return
@@ -88,19 +104,7 @@ public class ConsulLock {
 		}		
 		
 		return releaseLock(sessionId);
-	}
-	
-	/**
-	 * Checks the heartbeat and makes sure the lock is locked to our session
-	 * 
-	 * @return
-	 */
-	public boolean hasLock(String sessionId) throws ConsulException {
-		if (!heartbeat.isAlive())
-			throw new ConsulException("ConsulHeartbeat died");
-		
-		return hasLockSession(sessionId);
-	}
+	}	
 	
 	/**
 	 * Checks if the lock is locked to our session
@@ -116,10 +120,6 @@ public class ConsulLock {
 	 */
 	public static void renewSession(String sessionId) throws ConsulException {							
 		sessionClient.renewSession(sessionId);
-	}
-	
-	public String getSessionId() {
-		return this.sessionId;
 	}
 }
 
