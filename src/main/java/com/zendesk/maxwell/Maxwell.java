@@ -5,6 +5,9 @@ import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.concurrent.TimeoutException;
 import com.djdch.log4j.StaticShutdownCallbackRegistry;
+import com.jumbleberry.kinesis.ConsulLock;
+import com.orbitz.consul.ConsulException;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -19,7 +22,7 @@ import com.zendesk.maxwell.schema.ddl.InvalidSchemaError;
 public class Maxwell {
 	private MysqlSavedSchema savedSchema;
 	private MaxwellConfig config;
-	private MaxwellContext context;
+	private MaxwellContext context;	
 	static final Logger LOGGER = LoggerFactory.getLogger(Maxwell.class);
 
 	private void initFirstRun(Connection connection, Connection schemaConnection) throws SQLException, IOException, InvalidSchemaError {
@@ -35,12 +38,27 @@ public class Maxwell {
 		this.context.setPosition(pos);
 	}
 
-	private void run(String[] argv) throws Exception {
+	private void run(String[] argv) throws Exception {		
 		this.config = new MaxwellConfig(argv);
 
 		if ( this.config.log_level != null )
-			MaxwellLogging.setLevel(this.config.log_level);
-
+			MaxwellLogging.setLevel(this.config.log_level);		
+		
+		LOGGER.info("Trying to acquire Consul lock on host: " + this.config.consulUrl);		
+		
+		try {
+			if (!ConsulLock.AcquireLock(this.config.consulUrl, this.config.consulKey, this.config.consulLockSession)) {
+				LOGGER.error("Failed to acquire Consul lock on host: " + this.config.consulUrl);
+				return;
+			}	
+		} catch (InterruptedException e) {
+			LOGGER.error("InterruptedException: " + e.getLocalizedMessage());
+			LOGGER.error(e.getLocalizedMessage());
+			return;
+		}
+		
+		LOGGER.info("Consul lock acquired with session: " + ConsulLock.getSessionId());
+		
 		this.context = new MaxwellContext(this.config);
 
 		this.context.probeConnections();
@@ -69,14 +87,14 @@ public class Maxwell {
 			LOGGER.error(e.getLocalizedMessage());
 			return;
 		}
-
+		
 		AbstractProducer producer = this.context.getProducer();
 		AbstractBootstrapper bootstrapper = this.context.getBootstrapper();
 
 		final MaxwellReplicator p = new MaxwellReplicator(this.savedSchema, producer, bootstrapper, this.context, this.context.getInitialPosition());
-
-		bootstrapper.resume(producer, p);
-
+		
+		bootstrapper.resume(producer, p);		
+		
 		try {
 			p.setFilter(context.buildFilter());
 		} catch (MaxwellInvalidFilterException e) {
@@ -84,9 +102,11 @@ public class Maxwell {
 			System.exit(1);
 		}
 
-		Runtime.getRuntime().addShutdownHook(new Thread() {
+		Thread hook = new Thread() {
 			@Override
 			public void run() {
+				LOGGER.info("ShutdownHook");
+				
 				try {
 					p.stopLoop();
 				} catch (TimeoutException e) {
@@ -95,8 +115,10 @@ public class Maxwell {
 				context.terminate();
 				StaticShutdownCallbackRegistry.invoke();
 			}
-		});
-
+		};
+		
+		Runtime.getRuntime().addShutdownHook(hook);
+		
 		this.context.start();
 		p.runLoop();
 
@@ -106,6 +128,7 @@ public class Maxwell {
 		try {
 			new Maxwell().run(args);
 		} catch ( Exception e ) {
+			System.out.println("The beginning");
 			e.printStackTrace();
 			System.exit(1);
 		}

@@ -35,6 +35,10 @@ public class MaxwellConfig extends AbstractConfig {
     public int kinesisRequestTimeout;
     public String kinesisRegion;
     public String kinesisStreamName;
+    
+    public String consulUrl;
+    public String consulKey;
+    public String consulLockSession;
 
 	public String outputFile;
 	public String log_level;
@@ -91,6 +95,10 @@ public class MaxwellConfig extends AbstractConfig {
         parser.accepts( "kinesis_request_timeout", "optionally provide kinesis request timeout").withOptionalArg();
         parser.accepts( "kinesis_region", "optionally provide kinesis region").withOptionalArg();
         parser.accepts( "kinesis_stream_name", "optionally provide kinesis stream name").withOptionalArg();
+        
+        parser.accepts( "consul_url", "URL for Consul host" ).withOptionalArg();
+        parser.accepts( "consul_key", "Key for Consul lock" ).withOptionalArg();
+        parser.accepts( "consul_lock_session", "Consul session name" ).withOptionalArg();
 
 		parser.accepts( "__separator_4" );
 
@@ -202,6 +210,15 @@ public class MaxwellConfig extends AbstractConfig {
 
         if ( options.has("kinesis_stream_name"))
             this.kinesisStreamName = (String) options.valueOf("kinesis_stream_name");
+        
+        if ( options.has("consul_url"))
+        	this.consulUrl = (String) options.valueOf("consul_url");
+        
+        if ( options.has("consul_key"))
+        	this.consulKey = (String) options.valueOf("consul_key");
+        
+        if ( options.has("consul_lock_session"))
+        	this.consulLockSession = (String) options.valueOf("consul_lock_session");
 
 		if ( options.has("output_file"))
 			this.outputFile = (String) options.valueOf("output_file");
@@ -293,6 +310,11 @@ public class MaxwellConfig extends AbstractConfig {
         this.kinesisRequestTimeout = Integer.valueOf(p.getProperty("kinesis_request_timeout", "0"));
         this.kinesisRegion = p.getProperty("kinesis_region");
         this.kinesisStreamName = p.getProperty("kinesis_stream_name");
+        
+        this.consulUrl = p.getProperty("consul_url");
+        this.consulKey = p.getProperty("consul_key");
+        this.consulLockSession = p.getProperty("consul_lock_session");
+        
 
 		if ( p.containsKey("log_level") )
 			this.log_level = parseLogLevel(p.getProperty("log_level"));

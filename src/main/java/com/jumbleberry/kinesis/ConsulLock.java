@@ -1,58 +1,56 @@
 package com.jumbleberry.kinesis;
 
+import java.lang.Thread.UncaughtExceptionHandler;
+import java.util.Observable;
+import java.util.Observer;
 import java.util.UUID;
+import java.util.concurrent.TimeoutException;
 
+import com.djdch.log4j.StaticShutdownCallbackRegistry;
 import com.orbitz.consul.Consul;
 import com.orbitz.consul.ConsulException;
 import com.orbitz.consul.KeyValueClient;
 import com.orbitz.consul.SessionClient;
 import com.orbitz.consul.model.session.ImmutableSession;
 import com.orbitz.consul.model.session.SessionCreatedResponse;
+import com.zendesk.maxwell.MaxwellReplicator;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class ConsulLock {
-	private static final int lockAttempts = 60;
-	private static final int lockWait = 1000;
+public class ConsulLock
+{
+	private static final int lockAttempts = 0;
+	private static final int lockWait = 1000;	
+	private static final String lockDelay = "1s";
+	private static final String lockTtl = "10s";
 	
-	private final String lockDelay = "1s";
-	private final String lockTtl = "10s";	
-	private final Consul consul;
-	
+	private static Consul consul;	
 	private static String kvKey;
 	private static KeyValueClient kvClient;
-	private static SessionClient sessionClient;
+	private static SessionClient sessionClient;	
+	private static Thread heartbeat;	
+	private static String sessionId;
 	
-	private Thread heartbeat;	
-	private String sessionId;
-
-	public ConsulLock(String url, String key, String lockSession) {		
-		kvKey = key;		
-		lockSession = lockSession + "_" + UUID.randomUUID().toString();			
-		
-		consul = Consul.builder().withUrl(url).build();
-		kvClient = consul.keyValueClient();
-		sessionClient = consul.sessionClient();	
-		
-		SessionCreatedResponse response = sessionClient.createSession(ImmutableSession.builder().name(lockSession).lockDelay(lockDelay).ttl(lockTtl).build());	
-		this.sessionId = response.getId();
-		
-		heartbeat = new ConsulHeartbeat(this.sessionId);
-	}
+	private static ObservableConsul obsCon;
+	private static HeartbeatExceptionHandler heartbeatExceptionHandler;
 	
 	/**
 	 * Attempt to get a consul lock
 	 * 
+	 * @param String url
+	 * @param String key
+	 * @param String lockSession
 	 * @return
 	 * @throws Exception
 	 */
-	public boolean acquireLock() throws InterruptedException {				
-		int attempts = 0;
+	public static boolean AcquireLock(String url, String key, String lockSession) throws InterruptedException {	
+		buildSession(url, key, lockSession);
 		
+		int attempts = 0;		
 		// Keep trying to get a lock for our session
-		while (!kvClient.acquireLock(kvKey, this.sessionId)) {			
-			renewSession(this.sessionId);
+		while (!kvClient.acquireLock(kvKey, sessionId)) {			
+			renewSession();
 			
 			if (lockAttempts != 0 && ++attempts > lockAttempts) {
 				return false;
@@ -62,9 +60,34 @@ public class ConsulLock {
 		}		
 				
 		// Start the heartbeat
-		heartbeat.start();
+		heartbeat.start();	
 		
 		return true;
+	}	
+	
+	/**
+	 * Initialize the Consul session
+	 * 
+	 * @param String url
+	 * @param String key
+	 * @param String lockSession
+	 */
+	private static void buildSession(String url, String key, String lockSession) {
+		kvKey = key;		
+		lockSession = lockSession + "_" + UUID.randomUUID().toString();			
+		
+		consul = Consul.builder().withUrl(url).build();
+		kvClient = consul.keyValueClient();
+		sessionClient = consul.sessionClient();	
+		
+		SessionCreatedResponse response = sessionClient.createSession(ImmutableSession.builder().name(lockSession).lockDelay(lockDelay).ttl(lockTtl).build());	
+		sessionId = response.getId();
+		
+		obsCon = new ObservableConsul();
+		heartbeatExceptionHandler = new HeartbeatExceptionHandler();
+		
+		heartbeat = new ConsulHeartbeat();				
+		heartbeat.setDefaultUncaughtExceptionHandler(heartbeatExceptionHandler);
 	}
 	
 	/**
@@ -72,15 +95,12 @@ public class ConsulLock {
 	 * 
 	 * @return
 	 */
-	public boolean hasLock(String sessionId) throws ConsulException {
-		if (!heartbeat.isAlive())
-			throw new ConsulException("ConsulHeartbeat died");
-		
-		return hasLockSession(sessionId);
+	public static boolean hasLock() throws ConsulException {		
+		return (heartbeat != null) && heartbeat.isAlive() && hasLockSession();
 	}
 	
-	public String getSessionId() {
-		return this.sessionId;
+	public static String getSessionId() {
+		return sessionId;
 	}
 	
 	/**
@@ -88,7 +108,10 @@ public class ConsulLock {
 	 * 
 	 * @return
 	 */
-	public static boolean releaseLock(String sessionId) {
+	public static boolean releaseLock() {
+		if (kvClient == null)
+			throw new ConsulException("KeyValueClient not initialized");
+		
 		return kvClient.releaseLock(kvKey, sessionId);		
 	}
 	
@@ -98,12 +121,15 @@ public class ConsulLock {
 	 * @param force
 	 * @return
 	 */
-	public static boolean releaseLock(String sessionId, boolean force) {
+	public static boolean releaseLock(String sessionId, boolean force) throws ConsulException {
+		if (kvClient == null)
+			throw new ConsulException("SessionClient not initialized");
+		
 		if (force) {
 			sessionClient.destroySession(sessionId);		
 		}		
 		
-		return releaseLock(sessionId);
+		return releaseLock();
 	}	
 	
 	/**
@@ -111,54 +137,90 @@ public class ConsulLock {
 	 * 
 	 * @return
 	 */
-	public static boolean hasLockSession(String sessionId) throws ConsulException {		
+	public static boolean hasLockSession() throws ConsulException {
+		if (kvClient == null)
+			throw new ConsulException("KeyValueClient not initialized");		
+		
 		return kvClient.getValue(kvKey).get().getSession().isPresent() && kvClient.getValue(kvKey).get().getSession().get().equals(sessionId);
 	}
 	
 	/**
 	 * Renew the session to keep it alive
 	 */
-	public static void renewSession(String sessionId) throws ConsulException {							
+	public static void renewSession() throws ConsulException {
+		if (kvClient == null)
+			throw new ConsulException("SessionClient not initialized");
+		
 		sessionClient.renewSession(sessionId);
+	}
+	
+	public static void addObserver(Observer obs) {
+		obsCon.addObserver(obs);
+		heartbeatExceptionHandler.addObserver(obsCon);
+	}
+	
+	public static void addHook(Thread hook) {
+		
 	}
 }
 
-class ConsulHeartbeat extends Thread {
+class ConsulHeartbeat extends Thread 
+{
 	static final Logger LOGGER = LoggerFactory.getLogger(ConsulHeartbeat.class);
 	
 	private final int defaultInterval = 1000;
 	private int interval;
-	private String sessionId;
 	
-	public ConsulHeartbeat(String sessionId) {
-		this.sessionId = sessionId;
+	public ConsulHeartbeat() {
 		this.interval = defaultInterval;
 	};
 	
-	public ConsulHeartbeat(String sessionId, int interval) {
-		super(sessionId);
+	public ConsulHeartbeat(int interval) {
+		super();
 		this.interval = interval;		
 	}
 	
-	public void run() {
+	public void run() throws ConsulException {
 		boolean canRun = true;
 		
 		while(canRun) {											
 			try {
 				// Check if the lock is locked to our session
-				if (!ConsulLock.hasLockSession(sessionId)) {
-					LOGGER.error("No lock found for session");					
+				if (!ConsulLock.hasLockSession()) {
+					LOGGER.error("ConsulHeartbeat: No lock found for session");					
 					canRun = false;
 				}
 											
 				Thread.sleep(this.interval);	
 			} catch (Exception e) {				
-				LOGGER.error(e.getMessage());
+				LOGGER.error("ConsulHeartbeat: " + e.getMessage());
 				canRun = false;				
 			}		
 		}	
 		
 		// We lost the lock
-		this.interrupt();
+		throw new ConsulException("ConsulHeartbeat stopped");
+	}		
+}
+
+class ObservableConsul extends Observable {
+	public void notifyError() {
+		setChanged();
+		notifyObservers();		
 	}	
+}
+
+class HeartbeatExceptionHandler implements UncaughtExceptionHandler 
+{		
+	private ObservableConsul obs;
+	
+	@Override
+	public void uncaughtException(Thread t, Throwable e) {
+		if (obs != null)
+			obs.notifyError();	
+	}
+	
+	public void addObserver(ObservableConsul obs) {
+		this.obs = obs;
+	}
 }
