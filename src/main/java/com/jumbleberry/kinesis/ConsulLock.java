@@ -20,7 +20,6 @@ import org.slf4j.LoggerFactory;
 
 public class ConsulLock
 {
-	private static final int lockAttempts = 0;
 	private static final int lockWait = 1000;	
 	private static final String lockDelay = "1s";
 	private static final String lockTtl = "10s";
@@ -44,18 +43,13 @@ public class ConsulLock
 	 * @return
 	 * @throws Exception
 	 */
-	public static boolean AcquireLock(String url, String key, String lockSession) throws InterruptedException {	
-		buildSession(url, key, lockSession);
+	public static boolean AcquireLock(String url, String key) throws InterruptedException {	
+		buildSession(url, key);
 		
 		int attempts = 0;		
 		// Keep trying to get a lock for our session
 		while (!kvClient.acquireLock(kvKey, sessionId)) {			
 			renewSession();
-			
-			if (lockAttempts != 0 && ++attempts > lockAttempts) {
-				return false;
-			}
-			
 			Thread.sleep(lockWait);
 		}		
 				
@@ -72,15 +66,14 @@ public class ConsulLock
 	 * @param String key
 	 * @param String lockSession
 	 */
-	private static void buildSession(String url, String key, String lockSession) {
+	private static void buildSession(String url, String key) {
 		kvKey = key;		
-		lockSession = lockSession + "_" + UUID.randomUUID().toString();			
 		
 		consul = Consul.builder().withUrl(url).build();
 		kvClient = consul.keyValueClient();
 		sessionClient = consul.sessionClient();	
 		
-		SessionCreatedResponse response = sessionClient.createSession(ImmutableSession.builder().name(lockSession).lockDelay(lockDelay).ttl(lockTtl).build());	
+		SessionCreatedResponse response = sessionClient.createSession(ImmutableSession.builder().lockDelay(lockDelay).ttl(lockTtl).build());	
 		sessionId = response.getId();
 		
 		obsCon = new ObservableConsul();

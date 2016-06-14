@@ -47,7 +47,7 @@ public class Maxwell {
 		LOGGER.info("Trying to acquire Consul lock on host: " + this.config.consulUrl);		
 		
 		try {
-			if (!ConsulLock.AcquireLock(this.config.consulUrl, this.config.consulKey, this.config.consulLockSession)) {
+			if (!ConsulLock.AcquireLock(this.config.consulUrl, this.config.consulKey)) {
 				LOGGER.error("Failed to acquire Consul lock on host: " + this.config.consulUrl);
 				return;
 			}	
