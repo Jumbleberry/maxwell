@@ -1,19 +1,17 @@
 package com.jumbleberry.kinesis;
 
 import java.lang.Thread.UncaughtExceptionHandler;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Observable;
 import java.util.Observer;
-import java.util.UUID;
-import java.util.concurrent.TimeoutException;
 
-import com.djdch.log4j.StaticShutdownCallbackRegistry;
 import com.orbitz.consul.Consul;
 import com.orbitz.consul.ConsulException;
 import com.orbitz.consul.KeyValueClient;
 import com.orbitz.consul.SessionClient;
 import com.orbitz.consul.model.session.ImmutableSession;
 import com.orbitz.consul.model.session.SessionCreatedResponse;
-import com.zendesk.maxwell.MaxwellReplicator;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,10 +26,9 @@ public class ConsulLock
 	private static String kvKey;
 	private static KeyValueClient kvClient;
 	private static SessionClient sessionClient;	
-	private static Thread heartbeat;	
+	private static ConsulHeartbeat heartbeat;	
 	private static String sessionId;
 	
-	private static ObservableConsul obsCon;
 	private static HeartbeatExceptionHandler heartbeatExceptionHandler;
 	
 	/**
@@ -43,10 +40,9 @@ public class ConsulLock
 	 * @return
 	 * @throws Exception
 	 */
-	public static boolean AcquireLock(String url, String key) throws InterruptedException {	
+	public static boolean AcquireLock(String url, String key) throws InterruptedException {				
 		buildSession(url, key);
-		
-		int attempts = 0;		
+			
 		// Keep trying to get a lock for our session
 		while (!kvClient.acquireLock(kvKey, sessionId)) {			
 			renewSession();
@@ -76,11 +72,10 @@ public class ConsulLock
 		SessionCreatedResponse response = sessionClient.createSession(ImmutableSession.builder().lockDelay(lockDelay).ttl(lockTtl).build());	
 		sessionId = response.getId();
 		
-		obsCon = new ObservableConsul();
 		heartbeatExceptionHandler = new HeartbeatExceptionHandler();
 		
 		heartbeat = new ConsulHeartbeat();				
-		heartbeat.setDefaultUncaughtExceptionHandler(heartbeatExceptionHandler);
+		heartbeat.setUncaughtExceptionHandler(heartbeatExceptionHandler);
 	}
 	
 	/**
@@ -115,7 +110,7 @@ public class ConsulLock
 	 * @return
 	 */
 	public static boolean releaseLock(String sessionId, boolean force) throws ConsulException {
-		if (kvClient == null)
+		if (sessionClient == null)
 			throw new ConsulException("SessionClient not initialized");
 		
 		if (force) {
@@ -148,12 +143,10 @@ public class ConsulLock
 	}
 	
 	public static void addObserver(Observer obs) {
+		ObservableConsul obsCon = new ObservableConsul();		
 		obsCon.addObserver(obs);
-		heartbeatExceptionHandler.addObserver(obsCon);
-	}
-	
-	public static void addHook(Thread hook) {
 		
+		heartbeatExceptionHandler.addObserver(obsCon);
 	}
 }
 
@@ -176,15 +169,16 @@ class ConsulHeartbeat extends Thread
 	public void run() throws ConsulException {
 		boolean canRun = true;
 		
-		while(canRun) {											
+		while(canRun) {						
 			try {
+				Thread.sleep(this.interval);
+				
 				// Check if the lock is locked to our session
 				if (!ConsulLock.hasLockSession()) {
 					LOGGER.error("ConsulHeartbeat: No lock found for session");					
+					
 					canRun = false;
-				}
-											
-				Thread.sleep(this.interval);	
+				}															
 			} catch (Exception e) {				
 				LOGGER.error("ConsulHeartbeat: " + e.getMessage());
 				canRun = false;				
@@ -193,27 +187,36 @@ class ConsulHeartbeat extends Thread
 		
 		// We lost the lock
 		throw new ConsulException("ConsulHeartbeat stopped");
-	}		
+	}
 }
 
-class ObservableConsul extends Observable {
+class ObservableConsul extends Observable 
+{	
 	public void notifyError() {
+		// Trigger update() in observers
 		setChanged();
 		notifyObservers();		
-	}	
+	}
 }
 
 class HeartbeatExceptionHandler implements UncaughtExceptionHandler 
 {		
-	private ObservableConsul obs;
+	private List<ObservableConsul> obs;
+	
+	public HeartbeatExceptionHandler() {
+		obs = new ArrayList<ObservableConsul>();
+	}
 	
 	@Override
 	public void uncaughtException(Thread t, Throwable e) {
-		if (obs != null)
-			obs.notifyError();	
+		// Notify observers
+		for (int i = 0; i < obs.size(); i++) {
+			ObservableConsul o = obs.get(i);
+			o.notifyError();
+		}		
 	}
 	
 	public void addObserver(ObservableConsul obs) {
-		this.obs = obs;
+		this.obs.add(obs);
 	}
 }

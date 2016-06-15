@@ -105,8 +105,6 @@ public class Maxwell {
 		Thread hook = new Thread() {
 			@Override
 			public void run() {
-				LOGGER.info("ShutdownHook");
-				
 				try {
 					p.stopLoop();
 				} catch (TimeoutException e) {
@@ -128,7 +126,6 @@ public class Maxwell {
 		try {
 			new Maxwell().run(args);
 		} catch ( Exception e ) {
-			System.out.println("The beginning");
 			e.printStackTrace();
 			System.exit(1);
 		}

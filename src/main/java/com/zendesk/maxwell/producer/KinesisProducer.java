@@ -2,6 +2,8 @@ package com.zendesk.maxwell.producer;
 
 import java.nio.ByteBuffer;
 import java.util.Map;
+import java.util.Observable;
+import java.util.Observer;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
 
@@ -21,8 +23,10 @@ import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.googlecode.concurrentlinkedhashmap.ConcurrentLinkedHashMap;
 import com.googlecode.concurrentlinkedhashmap.ConcurrentLinkedHashMap.Builder;
+import com.jumbleberry.kinesis.ConsulLock;
+import com.orbitz.consul.ConsulException;
 
-public class KinesisProducer extends AbstractProducer {
+public class KinesisProducer extends AbstractProducer implements Observer {
 
     static final Logger LOGGER = LoggerFactory.getLogger(KinesisProducer.class);
     protected final com.amazonaws.services.kinesis.producer.KinesisProducer kinesis;
@@ -38,6 +42,8 @@ public class KinesisProducer extends AbstractProducer {
     protected final int maxPositionSize = 10000;
     protected ConcurrentHashMap<RowMap, Integer> attempts;
 
+    protected Thread main = Thread.currentThread();
+    
     public class Rows {
 		public RowMap rowMap;
         public int count;
@@ -84,24 +90,32 @@ public class KinesisProducer extends AbstractProducer {
         Builder<BinlogPosition, Rows> builder = new Builder<BinlogPosition,Rows>();
         this.positions = builder.maximumWeightedCapacity(this.maxPositionSize).build();
         this.attempts = new ConcurrentHashMap<RowMap, Integer>();
+        
+        // Tell consul we're watching the heartbeat
+        ConsulLock.addObserver(this);
     }
 
     @Override
     public void push(RowMap r) throws Exception {
-        // Get partition key
-        String key = DigestUtils.sha256Hex(r.getTable() + r.pkAsConcatString());
+    	try {
+            // Get partition key
+            String key = DigestUtils.sha256Hex(r.getTable() + r.pkAsConcatString());
 
-        LinkedBlockingQueue<RowMap> localQueue = queue.get(key);
-        if (localQueue == null) 
-            localQueue = new LinkedBlockingQueue<RowMap>();
-       
-        synchronized (localQueue) {
-            queue.putIfAbsent(key, localQueue);
-            addToQueue(key, r);
-            
-            if (localQueue.size() == 1)
-                addToInFlight(key, r);
-        }
+            LinkedBlockingQueue<RowMap> localQueue = queue.get(key);
+            if (localQueue == null) 
+                localQueue = new LinkedBlockingQueue<RowMap>();
+           
+            synchronized (localQueue) {
+                queue.putIfAbsent(key, localQueue);
+                addToQueue(key, r);
+                
+                if (localQueue.size() == 1)
+                    addToInFlight(key, r);
+            }
+    	} catch (InterruptedException e) {
+    		// If this thread is interrupted we want to signal to stop
+    		System.exit(1);
+    	}
     }
 
     protected void addToQueue(String key, RowMap r) throws Exception {
@@ -250,4 +264,10 @@ public class KinesisProducer extends AbstractProducer {
 
         Futures.addCallback(response, callBack);
     }
+    
+	@Override
+	public void update(Observable observable, Object arg) throws ConsulException {
+		// We've observed the heartbeat exception so stop (hammer time)
+		main.interrupt();
+	}
 }
