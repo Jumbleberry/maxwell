@@ -8,16 +8,9 @@ import com.zendesk.maxwell.MaxwellContext;
 import com.zendesk.maxwell.RowMap;
 import com.zendesk.maxwell.producer.AbstractProducer;
 
-public class StdoutProducer extends AbstractProducer implements Observer  {
+public class StdoutProducer extends AbstractProducer {
 	public StdoutProducer(MaxwellContext context) {		
 		super(context);
-		ConsulLock.addObserver(this);
-	}
-	
-	@Override
-	public void update(Observable observable, Object arg) {
-		System.out.println("Bye");
-		System.exit(1);		
 	}
 
 	@Override
@@ -25,11 +18,7 @@ public class StdoutProducer extends AbstractProducer implements Observer  {
 //		System.out.println(r.toJSON());					
 		
 		int attempts = 0;
-		while(true) {
-			System.out.println("Doing something... " + ++attempts);
-			
-			Thread.sleep(5000);
-		}
+		System.out.println("Doing something... " + ++attempts);
 		
     	// Convert RowMap to Avro here
 //    	AvroData avroData = r.toAvro();

@@ -46,17 +46,11 @@ public class Maxwell {
 		
 		LOGGER.info("Trying to acquire Consul lock on host: " + this.config.consulUrl);		
 		
-		try {
-			if (!ConsulLock.AcquireLock(this.config.consulUrl, this.config.consulKey)) {
-				LOGGER.error("Failed to acquire Consul lock on host: " + this.config.consulUrl);
-				return;
-			}	
-		} catch (InterruptedException e) {
-			LOGGER.error("InterruptedException: " + e.getLocalizedMessage());
-			LOGGER.error(e.getLocalizedMessage());
+		if (!ConsulLock.AcquireLock(this.config.consulUrl, this.config.consulKey)) {
+			LOGGER.error("Failed to acquire Consul lock on host: " + this.config.consulUrl);
 			return;
 		}
-		
+			
 		LOGGER.info("Consul lock acquired with session: " + ConsulLock.getSessionId());
 		
 		this.context = new MaxwellContext(this.config);
@@ -101,8 +95,8 @@ public class Maxwell {
 			LOGGER.error("Invalid maxwell filter", e);
 			System.exit(1);
 		}
-
-		Thread hook = new Thread() {
+		
+		Runtime.getRuntime().addShutdownHook(new Thread() {
 			@Override
 			public void run() {
 				try {
@@ -113,9 +107,7 @@ public class Maxwell {
 				context.terminate();
 				StaticShutdownCallbackRegistry.invoke();
 			}
-		};
-		
-		Runtime.getRuntime().addShutdownHook(hook);
+		});
 		
 		this.context.start();
 		p.runLoop();

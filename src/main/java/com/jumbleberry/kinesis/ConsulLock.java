@@ -19,8 +19,8 @@ import org.slf4j.LoggerFactory;
 public class ConsulLock
 {
 	private static final int lockWait = 1000;	
-	private static final String lockDelay = "1s";
-	private static final String lockTtl = "10s";
+	private static final int lockDelay = 1;
+	private static final int lockTtl = 10;
 	
 	private static Consul consul;	
 	private static String kvKey;
@@ -28,8 +28,6 @@ public class ConsulLock
 	private static SessionClient sessionClient;	
 	private static ConsulHeartbeat heartbeat;	
 	private static String sessionId;
-	
-	private static HeartbeatExceptionHandler heartbeatExceptionHandler;
 	
 	/**
 	 * Attempt to get a consul lock
@@ -69,13 +67,17 @@ public class ConsulLock
 		kvClient = consul.keyValueClient();
 		sessionClient = consul.sessionClient();	
 		
-		SessionCreatedResponse response = sessionClient.createSession(ImmutableSession.builder().lockDelay(lockDelay).ttl(lockTtl).build());	
+		SessionCreatedResponse response = sessionClient.createSession(ImmutableSession.builder().lockDelay(lockDelay + "s").ttl(lockTtl + "s").build());	
 		sessionId = response.getId();
 		
-		heartbeatExceptionHandler = new HeartbeatExceptionHandler();
-		
-		heartbeat = new ConsulHeartbeat();				
-		heartbeat.setUncaughtExceptionHandler(heartbeatExceptionHandler);
+		heartbeat = new ConsulHeartbeat(lockTtl + 1);				
+		heartbeat.setUncaughtExceptionHandler(new UncaughtExceptionHandler() {
+			@Override	
+			public void uncaughtException(Thread t, Throwable e) {
+				LoggerFactory.getLogger(ConsulLock.class).error("Lock lost due to inactivity");
+				System.exit(0);
+			}
+		});
 	}
 	
 	/**
@@ -109,11 +111,11 @@ public class ConsulLock
 	 * @param force
 	 * @return
 	 */
-	public static boolean releaseLock(String sessionId, boolean force) throws ConsulException {
+	public static boolean releaseSession(boolean force) throws ConsulException {
 		if (sessionClient == null)
 			throw new ConsulException("SessionClient not initialized");
 		
-		if (force) {
+		if (sessionId != null && force) {
 			sessionClient.destroySession(sessionId);		
 		}		
 		
@@ -141,25 +143,13 @@ public class ConsulLock
 		
 		sessionClient.renewSession(sessionId);
 	}
-	
-	public static void addObserver(Observer obs) {
-		ObservableConsul obsCon = new ObservableConsul();		
-		obsCon.addObserver(obs);
-		
-		heartbeatExceptionHandler.addObserver(obsCon);
-	}
 }
 
-class ConsulHeartbeat extends Thread 
+class ConsulHeartbeat extends Thread
 {
 	static final Logger LOGGER = LoggerFactory.getLogger(ConsulHeartbeat.class);
 	
-	private final int defaultInterval = 1000;
 	private int interval;
-	
-	public ConsulHeartbeat() {
-		this.interval = defaultInterval;
-	};
 	
 	public ConsulHeartbeat(int interval) {
 		super();
@@ -187,36 +177,5 @@ class ConsulHeartbeat extends Thread
 		
 		// We lost the lock
 		throw new ConsulException("ConsulHeartbeat stopped");
-	}
-}
-
-class ObservableConsul extends Observable 
-{	
-	public void notifyError() {
-		// Trigger update() in observers
-		setChanged();
-		notifyObservers();		
-	}
-}
-
-class HeartbeatExceptionHandler implements UncaughtExceptionHandler 
-{		
-	private List<ObservableConsul> obs;
-	
-	public HeartbeatExceptionHandler() {
-		obs = new ArrayList<ObservableConsul>();
-	}
-	
-	@Override
-	public void uncaughtException(Thread t, Throwable e) {
-		// Notify observers
-		for (int i = 0; i < obs.size(); i++) {
-			ObservableConsul o = obs.get(i);
-			o.notifyError();
-		}		
-	}
-	
-	public void addObserver(ObservableConsul obs) {
-		this.obs.add(obs);
 	}
 }

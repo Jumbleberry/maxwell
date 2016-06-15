@@ -26,7 +26,7 @@ import com.googlecode.concurrentlinkedhashmap.ConcurrentLinkedHashMap.Builder;
 import com.jumbleberry.kinesis.ConsulLock;
 import com.orbitz.consul.ConsulException;
 
-public class KinesisProducer extends AbstractProducer implements Observer {
+public class KinesisProducer extends AbstractProducer {
 
     static final Logger LOGGER = LoggerFactory.getLogger(KinesisProducer.class);
     protected final com.amazonaws.services.kinesis.producer.KinesisProducer kinesis;
@@ -90,9 +90,6 @@ public class KinesisProducer extends AbstractProducer implements Observer {
         Builder<BinlogPosition, Rows> builder = new Builder<BinlogPosition,Rows>();
         this.positions = builder.maximumWeightedCapacity(this.maxPositionSize).build();
         this.attempts = new ConcurrentHashMap<RowMap, Integer>();
-        
-        // Tell consul we're watching the heartbeat
-        ConsulLock.addObserver(this);
     }
 
     @Override
@@ -264,10 +261,4 @@ public class KinesisProducer extends AbstractProducer implements Observer {
 
         Futures.addCallback(response, callBack);
     }
-    
-	@Override
-	public void update(Observable observable, Object arg) throws ConsulException {
-		// We've observed the heartbeat exception so stop (hammer time)
-		main.interrupt();
-	}
 }
