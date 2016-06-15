@@ -81,7 +81,7 @@ public class AvroData {
 					integers.put(key, data.get(key));
 					break;
 				case "bigint":
-					longs.put(key, new Long((Integer) data.get(key)));
+					longs.put(key, new Long(data.get(key).toString()));
 					break;
 				default:
 					strings.put(key, data.get(key).toString());
@@ -150,8 +150,19 @@ public class AvroData {
 	 * @param Object value
 	 */
 	public void put(String field, Object value) {
-		record.put(field, value);
+		this.record.put(field, value);
 	}
+	
+	/**
+	 * Set the value for the file of a specific record
+	 * 
+	 * @param record
+	 * @param field
+	 * @param value
+	 */
+	public void put(GenericRecord record, String field, Object value) {
+		record.put(field, value);
+	}	
 		
 	/**
 	 * Return the GenericRecord
@@ -160,6 +171,18 @@ public class AvroData {
 	 */
 	public GenericRecord getRecord() {
 		return this.record;
+	}
+	
+	/**
+	 * Return the record for a field
+	 * 
+	 * @param field
+	 * @return
+	 */
+	public GenericRecord getSubRecord(String field) {
+		GenericRecord subRecord = new GenericData.Record(this.schema.getField(field).schema());
+		
+		return subRecord;
 	}
 	
 	/**

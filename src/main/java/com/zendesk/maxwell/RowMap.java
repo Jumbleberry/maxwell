@@ -5,6 +5,7 @@ import com.jumbleberry.kinesis.AvroData;
 import com.zendesk.maxwell.schema.Table;
 import com.zendesk.maxwell.schema.columndef.ColumnDef;
 
+import org.apache.avro.generic.GenericRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -238,6 +239,13 @@ public class RowMap implements Serializable {
 
 		avroData.put("database", this.database);
 		avroData.put("table", this.table);		
+		avroData.put("timestamp", getTimestamp());
+		avroData.put("primary_key", pkAsConcatString());
+		
+		GenericRecord subRecord = avroData.getSubRecord("binlog_position");
+		avroData.put(subRecord, "offset", nextPosition.getOffset());
+		avroData.put(subRecord, "file", nextPosition.getFile());
+		avroData.put("binlog_position", subRecord);
 		
 		// The schema buckets data types so we need to do the same
 		HashMap<String, HashMap<String, Object>> dataContainer = AvroData.sortData(tableSchema, data);

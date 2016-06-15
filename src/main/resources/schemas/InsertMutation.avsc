@@ -12,6 +12,31 @@
 			"type": "string"
 		},
 		{
+			"name": "timestamp",
+			"type": "long"
+		},
+		{
+			"name": "primary_key",
+			"type": "string"
+		},
+ 		{
+            "name": "binlog_position",
+            "type": {
+                "name": "BinlogPosition",
+                "type": "record",
+                "fields": [
+                    {
+                        "name": "offset",
+                        "type": "long"
+                    },
+                    {
+                        "name": "file",
+                        "type": "string"
+                    }
+                ]
+            }
+        },		
+		{
 		    "name": "txid",
 		    "type": ["null", {"name": "Guid", "type": "fixed", "size":16}],
 		    "default": "null"
