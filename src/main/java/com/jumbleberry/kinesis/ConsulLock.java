@@ -29,6 +29,9 @@ public class ConsulLock
 	private static ConsulHeartbeat heartbeat;	
 	private static String sessionId;
 	
+	private static long sessionRefresh = 0;
+	private static long heartbeatStart = 0;
+	
 	/**
 	 * Attempt to get a consul lock
 	 * 
@@ -43,11 +46,12 @@ public class ConsulLock
 			
 		// Keep trying to get a lock for our session
 		while (!kvClient.acquireLock(kvKey, sessionId)) {			
-			renewSession();
 			Thread.sleep(lockWait);
+			renewSession();
 		}		
 				
 		// Start the heartbeat
+		heartbeatStart = System.currentTimeMillis();
 		heartbeat.start();	
 		
 		return true;
@@ -116,7 +120,8 @@ public class ConsulLock
 			throw new ConsulException("SessionClient not initialized");
 		
 		if (sessionId != null && force) {
-			sessionClient.destroySession(sessionId);		
+			sessionClient.destroySession(sessionId);
+			sessionRefresh = heartbeatStart = 0;
 		}		
 		
 		return releaseLock();
@@ -141,7 +146,20 @@ public class ConsulLock
 		if (kvClient == null)
 			throw new ConsulException("SessionClient not initialized");
 		
+		sessionRefresh = System.currentTimeMillis();
 		sessionClient.renewSession(sessionId);
+	}
+	
+	/**
+	 * Keep track of whether or not we should attempt to fire off a heartbeat event
+	 */
+	public static boolean isHeartbeatInterval() {
+		if (heartbeatStart == 0 || (heartbeatStart + (Math.floor(lockTtl * 1000 / 3))  <= System.currentTimeMillis())) {
+			heartbeatStart = System.currentTimeMillis();
+			return true;
+		}
+			
+		return false;
 	}
 }
 
