@@ -248,13 +248,16 @@ public class RowMap implements Serializable {
 		avroData.put("binlog_position", subRecord);
 		
 		// The schema buckets data types so we need to do the same
-		HashMap<String, HashMap<String, Object>> dataContainer = AvroData.sortData(tableSchema, data);
-		for (int i = 0; i < types.length; i++) {
-			String type = types[i];
-			// We only need "new_" if we're updating
-			String prefix = this.oldData.isEmpty() ? "" : "new_";			
+		if (!this.data.isEmpty()) {
+			HashMap<String, HashMap<String, Object>> dataContainer = AvroData.sortData(tableSchema, data);
+			for (int i = 0; i < types.length; i++) {
+				String type = types[i];
+				// We only need "new_" if we're updating
+				String prefix = this.oldData.isEmpty() ? "" : "new_";			
+				
+				avroData.put(prefix + type, dataContainer.get(type));			
+			}
 			
-			avroData.put(prefix + type, dataContainer.get(type));			
 		}
 		
 		if (!this.oldData.isEmpty()) {
