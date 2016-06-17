@@ -17,7 +17,7 @@
 		},
 		{
 			"name": "primary_key",
-			"type": "string"
+			"type": ["string", "null"]
 		},
  		{
             "name": "binlog_position",
@@ -43,19 +43,19 @@
 		},
 		{
 			"name": "bytes",
-			"type": {"type": "map", "values": "bytes"}
+			"type": {"type": "map", "values": ["bytes", "null"]}
 		},
 		{
 			"name": "integers",
-			"type": {"type": "map", "values": "int"}
+			"type": {"type": "map", "values": ["int", "null"]}
 		},
 		{
 			"name": "strings",
-			"type": {"type": "map", "values": "string"}
+			"type": {"type": "map", "values": ["string", "null"]}
 		},
 		{
 			"name": "longs",
-			"type": {"type": "map", "values": "long"}
+			"type": {"type": "map", "values": ["long", "null"]}
 		}
 	]	
 }

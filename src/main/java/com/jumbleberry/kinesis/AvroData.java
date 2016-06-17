@@ -55,7 +55,17 @@ public class AvroData {
 		
 		// Sort mySQL data types into buckets
 		for ( String key: data.keySet() ) {
+			Object val = data.get(key);
+			
 			switch (tableSchema.get(key).toString()) {
+				case "tinyint":
+				case "smallint":
+				case "int":
+					integers.put(key, val == null? null: Integer.parseInt(val.toString()));
+					break;
+				case "bigint":
+					longs.put(key, val == null? null: Long.parseLong(val.toString()));
+					break;
 				case "decimal":
 				case "float":
 				case "double":
@@ -72,19 +82,9 @@ public class AvroData {
 				case "mediumblob":
 				case "longblob":
 				case "blob":
-				case "text":				
-					strings.put(key, data.get(key).toString());
-					break;
-				case "tinyint":
-				case "smallint":
-				case "int":
-					integers.put(key, data.get(key));
-					break;
-				case "bigint":
-					longs.put(key, new Long(data.get(key).toString()));
-					break;
+				case "text":	
 				default:
-					strings.put(key, data.get(key).toString());
+					strings.put(key, val == null? null: val.toString());
 					break;
 			}
 			
