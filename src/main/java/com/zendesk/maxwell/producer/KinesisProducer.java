@@ -2,14 +2,12 @@ package com.zendesk.maxwell.producer;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import org.apache.avro.Schema;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,7 +20,7 @@ import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.googlecode.concurrentlinkedhashmap.ConcurrentLinkedHashMap;
 import com.googlecode.concurrentlinkedhashmap.ConcurrentLinkedHashMap.Builder;
-import com.jumbleberry.kinesis.AvroData;
+import com.googlecode.concurrentlinkedhashmap.EvictionListener;
 import com.zendesk.maxwell.BinlogPosition;
 import com.zendesk.maxwell.MaxwellContext;
 import com.zendesk.maxwell.RowMap;
@@ -43,7 +41,6 @@ public class KinesisProducer extends AbstractProducer {
 
 	protected final ConcurrentLinkedHashMap<BinlogPosition, AtomicInteger> positions;
 	protected final ConcurrentHashMap<RowMap, Integer> attempts;
-	protected HashMap<String, Schema> schemas;
 
 	public KinesisProducer(
 			MaxwellContext context,
@@ -68,7 +65,6 @@ public class KinesisProducer extends AbstractProducer {
 				.setRecordMaxBufferedTime(kinesisMaxBufferedTime)
 				.setMaxConnections(kinesisMaxConnections)
 				.setMinConnections(8)
-				.setConnectTimeout(kinesisRequestTimeout)
 				.setRequestTimeout(kinesisRequestTimeout)
 				.setRecordTtl(kinesisRequestTimeout * 2 * 3)
 				.setRegion(kinesisRegion)
@@ -77,22 +73,22 @@ public class KinesisProducer extends AbstractProducer {
 		this.kinesis = new com.amazonaws.services.kinesis.producer.KinesisProducer(config);
 
 		// Set up message queue
-		this.queueSize = new Semaphore(maxSize);
+		this.queueSize = new Semaphore((int) (maxSize / 4));
 		this.queue = new ConcurrentHashMap<String, LinkedBlockingQueue<RowMap>>(maxSize);
 		this.inFlight = new ConcurrentHashMap<String, RowMap>(maxSize);
 
 		Builder<BinlogPosition, AtomicInteger> builder = new Builder<BinlogPosition,AtomicInteger>();
 		this.positions = builder.maximumWeightedCapacity(maxSize).build();
-		this.attempts = new ConcurrentHashMap<RowMap, Integer>();
-		
-		this.schemas = new HashMap<String, Schema>();
+		this.attempts = new ConcurrentHashMap<RowMap, Integer>(maxSize);
 	}
 
 	@Override
 	public void push(RowMap r) throws Exception {
 		try {
-			queueSize.acquire();
-
+			// index 0 will acquire room in the queue system
+			if (r.getIndex() == 0)
+				queueSize.acquire();
+			
 			// Get partition key
 			String key = DigestUtils.sha256Hex(r.getTable() + r.pkAsConcatString());
 
@@ -121,8 +117,6 @@ public class KinesisProducer extends AbstractProducer {
 		try {
 			synchronized (localQueue) {
 				localQueue.take();
-				queueSize.release();
-
 				next = localQueue.peek();
 
 				// Cleanup the queue if we've exhausted all elements
@@ -174,8 +168,10 @@ public class KinesisProducer extends AbstractProducer {
 							break;
 
 						minPosition = entry.getKey();
-						if (!isHeartbeat || position != minPosition);
+						if (!isHeartbeat || position != minPosition) {
 							positions.remove(minPosition);
+							queueSize.release();
+						}
 					}
 
 					if (minPosition != null)
@@ -187,11 +183,10 @@ public class KinesisProducer extends AbstractProducer {
 			}
 		}
 	}
-	
+
 	protected void pushToKinesis(String key, RowMap r) {
-		try {			
-			String schemaFile = AvroData.getSchemaName(r.getRowType());					
-			ByteBuffer data = ByteBuffer.wrap(r.toAvro(getSchema(schemaFile)).toByteArray());
+		try {
+			ByteBuffer data = ByteBuffer.wrap(r.toAvro().toByteArray());
 			addToInFlight(key, r);
 
 			FutureCallback<UserRecordResult> callBack = 
@@ -243,16 +238,5 @@ public class KinesisProducer extends AbstractProducer {
 			e.printStackTrace();
 			System.exit(1);
 		}
-	}
-	
-	protected Schema getSchema(String schemaFile) throws IOException {
-		if (schemas.get(schemaFile) == null) {
-			LOGGER.info("Loading schema from disk: " + schemaFile);
-			
-			Schema schema = AvroData.getSchema(schemaFile);
-			schemas.put(schemaFile, schema);
-		}
-		
-		return schemas.get(schemaFile);
 	}
 }

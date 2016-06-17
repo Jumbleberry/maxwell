@@ -5,7 +5,6 @@ import com.jumbleberry.kinesis.AvroData;
 import com.zendesk.maxwell.schema.Table;
 import com.zendesk.maxwell.schema.columndef.ColumnDef;
 
-import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,7 +27,7 @@ public class RowMap implements Serializable {
 
 	public final static String HEARTBEAT = "heartbeat"; 
 
-	private final String rowType;
+	public final String rowType;
 	private final String database;
 	private final String table;
 	private final Long timestamp;
@@ -241,9 +240,9 @@ public class RowMap implements Serializable {
 		return jsonFromStream();
 	}
 
-	public AvroData toAvro(Schema schema) throws IOException {
+	public AvroData toAvro() throws IOException {
 		String[] types = AvroData.getSchemaDataTypes();		
-		AvroData avroData = new AvroData(schema);		
+		AvroData avroData = new AvroData(rowType);		
 
 		avroData.put("database", this.database);
 		avroData.put("table", this.table);		
@@ -361,9 +360,5 @@ public class RowMap implements Serializable {
 		}
 
 		return tableSchema;
-	}	
-	
-	public String getRowType() {
-		return this.rowType;
 	}
 }
