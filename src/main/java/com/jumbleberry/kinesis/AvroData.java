@@ -28,15 +28,12 @@ public class AvroData {
 	private GenericRecord record;
 	private HashMap<String, String> header;
 	
-	public AvroData(String rowType) throws IOException {
-		String schemaName = ucfirst(rowType) + schemaSuffix;
-		
-		this.schema = getSchema(schemaName);
-		this.record = new GenericData.Record(schema);				
+	public AvroData(Schema schema) throws IOException {		
+		this.schema = schema;
+		this.record = new GenericData.Record(schema);
 		
 		this.header = new HashMap<String, String>();
-		this.header.put("schema", schemaName);
-		this.header.put("action", rowType);
+		this.header.put("schema", schema.getName());
 	}
 	
 	/**
@@ -139,7 +136,7 @@ public class AvroData {
 	 * @return 
 	 * @throws IOException
 	 */
-	private static Schema getSchema(String schemaFile) throws IOException {				
+	public static Schema getSchema(String schemaFile) throws IOException {				
 		return new Schema.Parser().parse(AvroData.class.getResourceAsStream(schemaDirectory + schemaFile));								
 	}	
 	
@@ -248,4 +245,14 @@ public class AvroData {
 		
 		return response;		
 	}
+	
+	/**
+	 * Get the schema name
+	 * 
+	 * @param String rowType
+	 * @return String
+	 */
+	public static String getSchemaName(String rowType) {
+		return ucfirst(rowType) + schemaSuffix;
+	}	
 }

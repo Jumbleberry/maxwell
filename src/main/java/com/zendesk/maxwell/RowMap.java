@@ -5,6 +5,7 @@ import com.jumbleberry.kinesis.AvroData;
 import com.zendesk.maxwell.schema.Table;
 import com.zendesk.maxwell.schema.columndef.ColumnDef;
 
+import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -240,9 +241,9 @@ public class RowMap implements Serializable {
 		return jsonFromStream();
 	}
 
-	public AvroData toAvro() throws IOException {
+	public AvroData toAvro(Schema schema) throws IOException {
 		String[] types = AvroData.getSchemaDataTypes();		
-		AvroData avroData = new AvroData(rowType);		
+		AvroData avroData = new AvroData(schema);		
 
 		avroData.put("database", this.database);
 		avroData.put("table", this.table);		
@@ -360,5 +361,9 @@ public class RowMap implements Serializable {
 		}
 
 		return tableSchema;
+	}	
+	
+	public String getRowType() {
+		return this.rowType;
 	}
 }
