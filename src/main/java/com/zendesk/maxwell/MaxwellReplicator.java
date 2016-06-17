@@ -139,7 +139,7 @@ public class MaxwellReplicator extends RunLoopProcess {
 	}
 
 	protected boolean isMaxwellRow(RowMap row) {
-		return row.getDatabase().equals(this.maxwellDatabase) && !row.getTable().equals(this.heartbeatTable);
+		return row.getDatabase().equals(this.maxwellDatabase) && !row.isHeartbeat();
 	}
 
 	private BinlogPosition eventBinlogPosition(AbstractBinlogEventV4 event) {
@@ -224,7 +224,7 @@ public class MaxwellReplicator extends RunLoopProcess {
 
 					if ( event.matchesFilter() ) {
 						for ( RowMap r : event.jsonMaps() ) {
-							
+
 							buffer.add(r);
 						}
 					}
@@ -277,12 +277,12 @@ public class MaxwellReplicator extends RunLoopProcess {
 		BinlogEventV4 v4Event;
 
 		while (true) {
-			
+
 			if (ConsulLock.isHeartbeatInterval()) {
 				LOGGER.info("Heartbeat event created");
 				return getHeartbeatRow();
 			}
-			
+
 			if (rowBuffer != null && !rowBuffer.isEmpty()) {
 				return rowBuffer.removeFirst();
 			}
@@ -363,11 +363,11 @@ public class MaxwellReplicator extends RunLoopProcess {
 			saveSchema(updatedSchema, resolvedSchemaChanges, p);
 		}
 	}
-	
+
 	private RowMap getHeartbeatRow() {
 		return new RowMap(
-				"heartbeat", 
-				new Table(this.maxwellDatabase, this.heartbeatTable, "", new ArrayList<ColumnDef>(0), null), 
+				RowMap.HEARTBEAT, 
+				new Table(this.maxwellDatabase, RowMap.HEARTBEAT, "", new ArrayList<ColumnDef>(0), null), 
 				System.currentTimeMillis(), 
 				new ArrayList<String>(0),
 				new BinlogPosition(this.replicator.getBinlogPosition(), this.replicator.getBinlogFileName())

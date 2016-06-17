@@ -153,7 +153,7 @@ public abstract class MaxwellAbstractRowsEvent extends AbstractRowEvent {
 
 				sql.append(d.toSQL(c.getValue()));
 
-				 if (colIter.hasNext())
+				if (colIter.hasNext())
 					sql.append(",");
 			}
 
@@ -188,22 +188,24 @@ public abstract class MaxwellAbstractRowsEvent extends AbstractRowEvent {
 
 	public List<RowMap> jsonMaps() {
 		ArrayList<RowMap> list = new ArrayList<>();
-		
-		int size = filteredRows().size();
 
-		for ( Iterator<Row> ri = filteredRows().iterator() ; ri.hasNext(); ) {
+		List<Row> rows = filteredRows();
+		int i = 0;
+		int size = rows.size();
+
+		for ( Iterator<Row> ri = rows.iterator() ; ri.hasNext(); ) {
 			Row r = ri.next();
 
-            RowMap rowMap;
-            if (this.filter != null && this.filter.hasExcludeColumns())
-                rowMap = buildRowMap(this.filter.getExcludeColumns());
-            else
-                rowMap = buildRowMap();
+			RowMap rowMap;
+			if (this.filter != null && this.filter.hasExcludeColumns())
+				rowMap = buildRowMap(this.filter.getExcludeColumns());
+			else
+				rowMap = buildRowMap();
 
-            for ( ColumnWithDefinition cd : new ColumnWithDefinitionList(table, r, getUsedColumns()) )
-                rowMap.putData(cd.definition.getName(), cd.asJSON());
+			for ( ColumnWithDefinition cd : new ColumnWithDefinitionList(table, r, getUsedColumns()) )
+				rowMap.putData(cd.definition.getName(), cd.asJSON());
 
-            rowMap.setAssociatedRows(size);
+			rowMap.setSegmentData(i++, size);
 
 			list.add(rowMap);
 		}

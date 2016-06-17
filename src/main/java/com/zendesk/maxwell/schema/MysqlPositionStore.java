@@ -8,6 +8,7 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
+import com.jumbleberry.kinesis.ConsulLock;
 import com.zendesk.maxwell.BinlogPosition;
 import com.zendesk.maxwell.RunLoopProcess;
 import org.slf4j.Logger;
@@ -70,9 +71,16 @@ public class MysqlPositionStore extends RunLoopProcess implements Runnable {
 
 	public void work() throws Exception {
 		BinlogPosition newPosition = position.get();
+		BinlogPosition oldPosition = storedPosition.get();
 
-		if ( newPosition != null && newPosition.newerThan(storedPosition.get()) ) {
-			store(newPosition);
+		// Continue as long as we're not moving back in time
+		if ( newPosition != null && (oldPosition == null || !oldPosition.newerThan(newPosition))) {
+			// Don't write out if position has not changed
+			if (!newPosition.equals(oldPosition))
+				store(newPosition);
+
+			// But safe to renew session (heartbeats, etc). Position hasn't changed but we've done work
+			ConsulLock.renewSession();
 		}
 
 		try {

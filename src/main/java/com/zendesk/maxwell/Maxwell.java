@@ -43,16 +43,16 @@ public class Maxwell {
 
 		if ( this.config.log_level != null )
 			MaxwellLogging.setLevel(this.config.log_level);		
-		
+
 		LOGGER.info("Trying to acquire Consul lock on host: " + this.config.consulUrl);		
-		
+
 		if (!ConsulLock.AcquireLock(this.config.consulUrl, this.config.consulKey)) {
 			LOGGER.error("Failed to acquire Consul lock on host: " + this.config.consulUrl);
 			return;
 		}
-			
+
 		LOGGER.info("Consul lock acquired with session: " + ConsulLock.getSessionId());
-		
+
 		this.context = new MaxwellContext(this.config);
 
 		this.context.probeConnections();
@@ -81,21 +81,21 @@ public class Maxwell {
 			LOGGER.error(e.getLocalizedMessage());
 			return;
 		}
-		
+
 		AbstractProducer producer = this.context.getProducer();
 		AbstractBootstrapper bootstrapper = this.context.getBootstrapper();
 
 		final MaxwellReplicator p = new MaxwellReplicator(this.savedSchema, producer, bootstrapper, this.context, this.context.getInitialPosition());
-		
+
 		bootstrapper.resume(producer, p);		
-		
+
 		try {
 			p.setFilter(context.buildFilter());
 		} catch (MaxwellInvalidFilterException e) {
 			LOGGER.error("Invalid maxwell filter", e);
 			System.exit(1);
 		}
-		
+
 		Runtime.getRuntime().addShutdownHook(new Thread() {
 			@Override
 			public void run() {
@@ -105,10 +105,11 @@ public class Maxwell {
 					System.err.println("Timed out trying to shutdown maxwell parser thread.");
 				}
 				context.terminate();
+				ConsulLock.releaseSession(true);
 				StaticShutdownCallbackRegistry.invoke();
 			}
 		});
-		
+
 		this.context.start();
 		p.runLoop();
 

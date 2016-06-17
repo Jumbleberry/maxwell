@@ -60,4 +60,9 @@ public class BinlogPosition implements Serializable {
 
 		return this.file.equals(otherPosition.file) && this.offset == otherPosition.offset;
 	}
+
+	@Override
+	public int hashCode() {
+		return this.toString().hashCode();
+	}
 }
