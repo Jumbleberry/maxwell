@@ -69,7 +69,8 @@ public class KinesisProducer extends AbstractProducer {
 				.setMaxConnections(kinesisMaxConnections)
 				.setMinConnections(8)
 				.setRequestTimeout(kinesisRequestTimeout)
-				.setRecordTtl(kinesisRequestTimeout + kinesisConnectTimeout)
+				.setConnectTimeout(kinesisConnectTimeout)
+				.setRecordTtl(kinesisRequestTimeout + kinesisConnectTimeout + 1000)
 				.setRegion(kinesisRegion)
 				.setCredentialsProvider(new SystemPropertiesCredentialsProvider());
 
