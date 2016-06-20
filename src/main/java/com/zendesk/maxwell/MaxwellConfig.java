@@ -378,6 +378,9 @@ public class MaxwellConfig extends AbstractConfig {
             if ( this.kinesisRequestTimeout == 0 ) {
                 usage("You must provide aws kinesis request timeout for using kinesis as output sink!");
             }
+            if ( this.kinesisConnectTimeout == 0 ) {
+                usage("You must provide aws kinesis connect timeout for using kinesis as output sink!");
+            }
             if ( this.kinesisRegion == null ) {
                 usage("You must provide aws kinesis region for using kinesis as output sink!");
             }

@@ -97,6 +97,11 @@ password=maxwell
 #kinesis_stream_name=placeholder
 
 
+######### consul stuff ###############
+consul_url=http://local_ip_goes_here
+consul_key=test-lock
+
+
 ######### filter stuff ###############
 
 # filter rows out of Maxwell's output.
