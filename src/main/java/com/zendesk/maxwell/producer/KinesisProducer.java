@@ -88,12 +88,15 @@ public class KinesisProducer extends AbstractProducer {
 	public void push(RowMap r) throws Exception {
 		try {
 			
-			// Don't allow re-processing of older events
-			if (mostRecentPosition != null && !mostRecentPosition.newerThan(r.getPosition()))
-				return;
-			
-			// Keep track of most recent position we've seen
-			mostRecentPosition = r.getPosition();
+			if (!r.isHeartbeat()) {
+				
+				// Don't allow re-processing of older events
+				if (mostRecentPosition != null && mostRecentPosition.newerThan(r.getPosition()))
+					return;
+				
+				// Keep track of most recent position we've seen
+				mostRecentPosition = r.getPosition();
+			}
 			
 			// index 0 will acquire room in the queue system
 			if (r.getIndex() == 0)

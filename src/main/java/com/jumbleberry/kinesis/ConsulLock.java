@@ -146,8 +146,8 @@ public class ConsulLock
 		if (kvClient == null)
 			throw new ConsulException("SessionClient not initialized");
 
-		sessionRefresh = System.currentTimeMillis();
 		sessionClient.renewSession(sessionId);
+		sessionRefresh = System.currentTimeMillis();
 	}
 
 	/**
