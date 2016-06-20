@@ -33,6 +33,7 @@ public class MaxwellConfig extends AbstractConfig {
     public int kinesisMaxBufferedTime;
     public int kinesisMaxConnections;
     public int kinesisRequestTimeout;
+    public int kinesisConnectTimeout;
     public String kinesisRegion;
     public String kinesisStreamName;
     
@@ -93,6 +94,7 @@ public class MaxwellConfig extends AbstractConfig {
         parser.accepts( "kinesis_max_buffered_time", "optionally provide kinesis max buffered time").withOptionalArg();
         parser.accepts( "kinesis_max_connections", "optionally provide kinesis max connections").withOptionalArg();
         parser.accepts( "kinesis_request_timeout", "optionally provide kinesis request timeout").withOptionalArg();
+        parser.accepts( "kinesis_connect_timeout", "optionally provide kinesis connect timeout").withOptionalArg();
         parser.accepts( "kinesis_region", "optionally provide kinesis region").withOptionalArg();
         parser.accepts( "kinesis_stream_name", "optionally provide kinesis stream name").withOptionalArg();
         
@@ -205,6 +207,9 @@ public class MaxwellConfig extends AbstractConfig {
         if ( options.has("kinesis_request_timeout"))
             this.kinesisRequestTimeout = (int) options.valueOf("kinesis_request_timeout");
 
+        if ( options.has("kinesis_connect_timeout"))
+            this.kinesisConnectTimeout = (int) options.valueOf("kinesis_connect_timeout");
+
         if ( options.has("kinesis_region"))
             this.kinesisRegion = (String) options.valueOf("kinesis_region");
 
@@ -308,6 +313,7 @@ public class MaxwellConfig extends AbstractConfig {
         this.kinesisMaxBufferedTime = Integer.valueOf(p.getProperty("kinesis_max_buffered_time", "0"));
         this.kinesisMaxConnections = Integer.valueOf(p.getProperty("kinesis_max_connections", "0"));
         this.kinesisRequestTimeout = Integer.valueOf(p.getProperty("kinesis_request_timeout", "0"));
+        this.kinesisConnectTimeout = Integer.valueOf(p.getProperty("kinesis_connect_timeout", "0"));
         this.kinesisRegion = p.getProperty("kinesis_region");
         this.kinesisStreamName = p.getProperty("kinesis_stream_name");
         
