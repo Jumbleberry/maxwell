@@ -105,7 +105,6 @@ public class Maxwell {
 					System.err.println("Timed out trying to shutdown maxwell parser thread.");
 				}
 				context.terminate();
-				ConsulLock.releaseSession(true);
 				StaticShutdownCallbackRegistry.invoke();
 			}
 		});

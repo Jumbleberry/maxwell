@@ -19,8 +19,8 @@ import org.slf4j.LoggerFactory;
 public class ConsulLock
 {
 	private static final int lockWait = 1000;	
-	private static final int lockDelay = 15;
-	private static final int lockTtl = 500;
+	private static final int lockDelay = 20;
+	private static final int lockTtl = 65;
 
 	private static Consul consul;	
 	private static String kvKey;
@@ -75,11 +75,17 @@ public class ConsulLock
 		sessionId = response.getId();
 
 		heartbeat = new ConsulHeartbeat(lockTtl + 1);				
+		Runtime.getRuntime().addShutdownHook(new Thread() {
+			public void run() {
+				LoggerFactory.getLogger(ConsulLock.class).error("Releasing Consul lock during shutdown sequence");
+				ConsulLock.releaseSession(true);
+			}
+		});
 		heartbeat.setUncaughtExceptionHandler(new UncaughtExceptionHandler() {
 			@Override	
 			public void uncaughtException(Thread t, Throwable e) {
 				LoggerFactory.getLogger(ConsulLock.class).error("Lock lost due to inactivity");
-				System.exit(0);
+				System.exit(1);
 			}
 		});
 	}
@@ -146,15 +152,17 @@ public class ConsulLock
 		if (kvClient == null)
 			throw new ConsulException("SessionClient not initialized");
 
-		sessionClient.renewSession(sessionId);
-		sessionRefresh = System.currentTimeMillis();
+		if (sessionRefresh == 0 || (sessionRefresh + (Math.floor(lockTtl * 1000 / 8)) <= System.currentTimeMillis())) {
+			sessionClient.renewSession(sessionId);
+			sessionRefresh = System.currentTimeMillis();
+		}
 	}
 
 	/**
 	 * Keep track of whether or not we should attempt to fire off a heartbeat event
 	 */
 	public static boolean isHeartbeatInterval() {
-		if (heartbeatStart == 0 || (heartbeatStart + (Math.floor(lockTtl * 1000 / 3))  <= System.currentTimeMillis())) {
+		if (heartbeatStart == 0 || (heartbeatStart + (Math.floor(lockTtl * 1000 / 4))  <= System.currentTimeMillis())) {
 			heartbeatStart = System.currentTimeMillis();
 			return true;
 		}
