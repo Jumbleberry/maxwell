@@ -180,6 +180,7 @@ public class MaxwellContext {
                 this.config.kinesisMaxBufferedTime,
                 this.config.kinesisMaxConnections,
                 this.config.kinesisRequestTimeout,
+                this.config.kinesisConnectTimeout,
                 this.config.kinesisRegion,
                 this.config.kinesisStreamName
                 );

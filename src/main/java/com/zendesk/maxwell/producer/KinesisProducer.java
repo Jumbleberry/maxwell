@@ -51,6 +51,7 @@ public class KinesisProducer extends AbstractProducer {
 			int kinesisMaxBufferedTime,
 			int kinesisMaxConnections,
 			int kinesisRequestTimeout,
+			int kinesisConnectTimeout,
 			String kinesisRegion,
 			String kinesisStreamName
 			) {
