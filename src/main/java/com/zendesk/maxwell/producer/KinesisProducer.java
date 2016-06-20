@@ -41,6 +41,8 @@ public class KinesisProducer extends AbstractProducer {
 
 	protected final ConcurrentLinkedHashMap<BinlogPosition, AtomicInteger> positions;
 	protected final ConcurrentHashMap<RowMap, Integer> attempts;
+	
+	protected BinlogPosition mostRecentPosition;
 
 	public KinesisProducer(
 			MaxwellContext context,
@@ -66,7 +68,7 @@ public class KinesisProducer extends AbstractProducer {
 				.setMaxConnections(kinesisMaxConnections)
 				.setMinConnections(8)
 				.setRequestTimeout(kinesisRequestTimeout)
-				.setRecordTtl(kinesisRequestTimeout * 2 * 3)
+				.setRecordTtl(kinesisRequestTimeout + kinesisConnectTimeout)
 				.setRegion(kinesisRegion)
 				.setCredentialsProvider(new SystemPropertiesCredentialsProvider());
 
@@ -85,6 +87,14 @@ public class KinesisProducer extends AbstractProducer {
 	@Override
 	public void push(RowMap r) throws Exception {
 		try {
+			
+			// Don't allow re-processing of older events
+			if (mostRecentPosition != null && !mostRecentPosition.newerThan(r.getPosition()))
+				return;
+			
+			// Keep track of most recent position we've seen
+			mostRecentPosition = r.getPosition();
+			
 			// index 0 will acquire room in the queue system
 			if (r.getIndex() == 0)
 				queueSize.acquire();
