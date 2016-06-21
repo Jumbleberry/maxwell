@@ -8,6 +8,7 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.commons.codec.digest.DigestUtils;
+import org.apache.commons.lang.ArrayUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -22,6 +23,8 @@ import com.googlecode.concurrentlinkedhashmap.ConcurrentLinkedHashMap.Builder;
 import com.zendesk.maxwell.BinlogPosition;
 import com.zendesk.maxwell.MaxwellContext;
 import com.zendesk.maxwell.RowMap;
+
+import com.timgroup.statsd.NonBlockingStatsDClient;
 
 public class KinesisProducer extends AbstractProducer {
 
@@ -69,7 +72,9 @@ public class KinesisProducer extends AbstractProducer {
 			String kinesisStreamName
 			) {
 		super(context);
-
+		
+		this.statsd = new NonBlockingStatsDClient("com.kinesis", "127.0.0.1", 8125);
+		
 		this.streamName = kinesisStreamName;
 
 		// Set up AWS system properties
@@ -98,6 +103,8 @@ public class KinesisProducer extends AbstractProducer {
 		Builder<BinlogPosition, RowMapContext> builder = new Builder<BinlogPosition,RowMapContext>();
 		this.positions = builder.maximumWeightedCapacity(maxSize).build();
 		this.attempts = new ConcurrentHashMap<RowMap, Integer>(maxSize);
+		
+		metricsReporter();
 	}
 
 	@Override
@@ -116,9 +123,13 @@ public class KinesisProducer extends AbstractProducer {
 				mostRecentPosition = r.getPosition();
 			}
 			
+			long startTime = System.currentTimeMillis();
+			
 			// index 0 will acquire room in the queue system
-			if (r.getIndex() == 0)
+			if (r.getIndex() == 0) {
 				queueSize.acquire();
+				statsd.recordHistogramValue("producer.affected_rows", r.getEffectedRows(), getTags(r));
+			}
 
 			// Get an instance of a queue segmented by partition key
 			LinkedBlockingQueue<RowMap> localQueue = queue.get(key);
@@ -131,10 +142,17 @@ public class KinesisProducer extends AbstractProducer {
 				localSize = localQueue.size();
 			}
 			
+			// Record amount of time it took to get the permit
+			statsd.recordHistogramValue("producer.wait", System.currentTimeMillis() - startTime);
+			
 			if (localSize == 1) {
+				statsd.increment("producer.inflight.queue", getTags(r, "type:immediate"));
 				pushToKinesis(key, r);
 				return;
 			}
+			
+			statsd.increment("producer.inflight.queue", getTags(r, "type:delayed"));
+			
 		} catch (InterruptedException e) {
 			// If this thread is interrupted we want to signal to stop
 			System.exit(1);
@@ -153,7 +171,7 @@ public class KinesisProducer extends AbstractProducer {
 			
 			// Cleanup the queue if we've exhausted all elements
 			if (next != null) {
-				statsd.increment("producer.deque", "type:chained");
+				statsd.increment("producer.inflight.queue", getTags(r, "type:chained"));
 				return next;
 			}
 			
@@ -168,12 +186,14 @@ public class KinesisProducer extends AbstractProducer {
 	}
 
 	protected void addToInFlight(String key, RowMap r) {
+		statsd.increment("producer.push", getTags(r));
 		attempts.putIfAbsent(r, 0);
 		recordBinlogPosition(r);
 		inFlight.putIfAbsent(key, r);
 	}
 
-	protected void removeFromInFlight(String key, RowMap r) {    	
+	protected void removeFromInFlight(String key, RowMap r) {  
+		statsd.increment("producer.pop", getTags(r));
 		attempts.remove(r);
 		updateBinlogPosition(r);
 		inFlight.remove(key);
@@ -222,20 +242,30 @@ public class KinesisProducer extends AbstractProducer {
 	protected void pushToKinesis(String key, RowMap r) {
 		try {
 			ByteBuffer data = ByteBuffer.wrap(r.toAvro().toByteArray());
+			statsd.histogram("producer.rowmap.size", data.remaining(), getTags(r));
+			
 			addToInFlight(key, r);
 
 			FutureCallback<UserRecordResult> callBack = 
 					(new FutureCallback<UserRecordResult>() {
 						protected String key;
 						protected RowMap r;
+						protected long start;
 
 						public FutureCallback<UserRecordResult> setUp(String key, RowMap r) {
 							this.key = key;
 							this.r = r;
+							this.start = System.currentTimeMillis();
 							return this;
+						}
+						
+						public void reportStats(String outcome) {
+							statsd.histogram("producer.kpl.latency", System.currentTimeMillis() - start, getTags(r, "status:" + outcome));
 						}
 
 						@Override public void onFailure(Throwable t) { 
+							reportStats("error");
+							
 							int attemptCount = attempts.put(this.r, attempts.get(this.r) + 1);
 							if (attemptCount < 3) {
 								pushToKinesis(key, r);
@@ -248,6 +278,8 @@ public class KinesisProducer extends AbstractProducer {
 
 						@Override 
 						public void onSuccess(UserRecordResult result) {
+							reportStats("success");
+							
 							removeFromInFlight(key, r);
 							RowMap next = popAndGetNext(key, r);
 
@@ -268,5 +300,35 @@ public class KinesisProducer extends AbstractProducer {
 			e.printStackTrace();
 			System.exit(1);
 		}
+	}
+	
+	public String[] getTags(RowMap r, String... args) {
+		String[] tags = {
+			"database:" + r.getDatabase(),
+			"table:" + r.getTable()
+		};
+		
+		for (String arg: args)
+			tags = (String[]) ArrayUtils.add(tags, arg);
+		
+		return tags;
+	}
+	
+	public void metricsReporter() {
+		(new Thread() {
+			public void run() {
+				for (;;) {
+					try {
+						statsd.recordGaugeValue("producer.kpl.inflight", kinesis.getOutstandingRecordsCount());
+						statsd.recordGaugeValue("producer.inflight", inFlight.size());
+						statsd.recordGaugeValue("producer.positions", positions.size());
+						statsd.recordGaugeValue("producer.permits.available", queueSize.availablePermits());
+						statsd.recordGaugeValue("producer.permits.used", maxTransactions - queueSize.availablePermits());
+						
+						Thread.sleep(1000);
+					} catch (InterruptedException e) {}
+				}
+			}
+		}).start();
 	}
 }
