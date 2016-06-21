@@ -254,7 +254,11 @@ public class MaxwellReplicator extends RunLoopProcess {
 						// to us starting on a WRITE_ROWS event -- we sync the schema position somewhere
 						// kinda unsafe.
 						processQueryEvent(qe);
-					} else {
+					} else if ( sql.toUpperCase().startsWith("INSERT INTO MYSQL.RDS_HEARTBEAT")) {
+                        // Ignore heart beat event
+                        break;
+                    }
+                     else {
 						LOGGER.warn("Unhandled QueryEvent inside transaction: " + qe);
 					}
 					break;
