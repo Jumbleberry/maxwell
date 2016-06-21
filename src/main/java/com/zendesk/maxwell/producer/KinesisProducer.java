@@ -40,11 +40,25 @@ public class KinesisProducer extends AbstractProducer {
 	protected final ConcurrentHashMap<String, LinkedBlockingQueue<RowMap>> queue;
 	protected final ConcurrentHashMap<String, RowMap> inFlight;
 
-	protected final ConcurrentLinkedHashMap<BinlogPosition, AtomicInteger> positions;
+	protected final ConcurrentLinkedHashMap<BinlogPosition, RowMapContext> positions;
 	protected final ConcurrentHashMap<RowMap, Integer> attempts;
 	
 	protected BinlogPosition mostRecentPosition;
 
+	protected final NonBlockingStatsDClient statsd;
+	
+	private class RowMapContext {
+		public AtomicInteger remainingRows;
+		public boolean isTxCommit;
+		public long Xid;
+		
+		public RowMapContext(RowMap r) {
+			this.remainingRows = new AtomicInteger(r.getEffectedRows());
+			this.isTxCommit = r.isTXCommit();
+			this.Xid = r.getXid();
+		}
+	}
+	
 	public KinesisProducer(
 			MaxwellContext context,
 			String kinesisAccessKeyId,
@@ -83,7 +97,7 @@ public class KinesisProducer extends AbstractProducer {
 		this.queue = new ConcurrentHashMap<String, LinkedBlockingQueue<RowMap>>(maxSize);
 		this.inFlight = new ConcurrentHashMap<String, RowMap>(maxSize);
 
-		Builder<BinlogPosition, AtomicInteger> builder = new Builder<BinlogPosition,AtomicInteger>();
+		Builder<BinlogPosition, RowMapContext> builder = new Builder<BinlogPosition,RowMapContext>();
 		this.positions = builder.maximumWeightedCapacity(maxSize).build();
 		this.attempts = new ConcurrentHashMap<RowMap, Integer>(maxSize);
 	}
@@ -168,37 +182,37 @@ public class KinesisProducer extends AbstractProducer {
 	}
 
 	protected void recordBinlogPosition(RowMap r) {
-		if (!r.isHeartbeat())
-			positions.putIfAbsent(r.getPosition(), new AtomicInteger(r.getEffectedRows()));
+		if (!r.isHeartbeat() && !positions.containsKey(r.getPosition()))
+			positions.putIfAbsent(r.getPosition(), new RowMapContext(r));
 	}
 
 	protected void updateBinlogPosition(RowMap r) {
 		boolean isHeartbeat = r.isHeartbeat();
 
-		BinlogPosition position = r.getPosition();
-		int remainingRows = !isHeartbeat? positions.get(position).decrementAndGet(): 0;
 		BinlogPosition minPosition = null;
-
+		BinlogPosition position = r.getPosition();
+		int remainingRows = !isHeartbeat? positions.get(position).remainingRows.decrementAndGet(): 0;
+				
 		// If remaining rows reaches 0, prune the outstanding records 
 		if (remainingRows <= 0) {
 			try {
 				synchronized (positions) {
-
-					Map<BinlogPosition, AtomicInteger> map = positions.ascendingMap();
-					for (Map.Entry<BinlogPosition, AtomicInteger> entry : map.entrySet()) {
+					Map<BinlogPosition, RowMapContext> map = positions.ascendingMap();
+					for (Map.Entry<BinlogPosition, RowMapContext> entry : map.entrySet()) {
 						// If entry is > 0, we're still waiting on elements and can't continue
-						if (entry.getValue().get() > 0)
+						if (entry.getValue().remainingRows.get() > 0)
 							break;
-
-						minPosition = entry.getKey();
-						if (!isHeartbeat || position != minPosition) {
-							positions.remove(minPosition);
-							queueSize.release();
-						}
+						
+						// Only save positions for transactional commits so we don't resume mid-transaction 
+						if (entry.getValue().isTxCommit)
+							minPosition = entry.getKey();
+						
+						// Attempt to remove the key from the tracker & release a key if we're the first to remove it
+						positions.remove(entry.getKey());
+						queueSize.release();
 					}
 
-					if (minPosition != null)
-						context.setPosition(minPosition);
+					context.setPosition(minPosition);
 				}
 			} catch (Exception e) {
 				LOGGER.error("Failed to write out binlog position");
@@ -225,9 +239,7 @@ public class KinesisProducer extends AbstractProducer {
 
 						@Override public void onFailure(Throwable t) { 
 							int attemptCount = attempts.put(this.r, attempts.get(this.r) + 1);
-
 							if (attemptCount < 3) {
-								LOGGER.error("Failed to push to kinesis: retrying.");
 								pushToKinesis(key, r);
 								return;
 							}
@@ -242,9 +254,8 @@ public class KinesisProducer extends AbstractProducer {
 							RowMap next = popAndGetNext(key, r);
 
 							// If there's another element in the queue, send it through
-							if (next != null) {
+							if (next != null)
 								pushToKinesis(key, next);
-							}
 						};
 
 					}).setUp(key, r);

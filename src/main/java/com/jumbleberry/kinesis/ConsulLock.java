@@ -19,8 +19,8 @@ import org.slf4j.LoggerFactory;
 public class ConsulLock
 {
 	private static final int lockWait = 1000;	
-	private static final int lockDelay = 20;
-	private static final int lockTtl = 65;
+	private static final int lockDelay = 30;
+	private static final int lockTtl = 120;
 
 	private static Consul consul;	
 	private static String kvKey;

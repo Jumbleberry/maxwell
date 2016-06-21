@@ -74,14 +74,8 @@ public class MysqlPositionStore extends RunLoopProcess implements Runnable {
 		BinlogPosition oldPosition = storedPosition.get();
 
 		// Continue as long as we're not moving back in time
-		if ( newPosition != null && (oldPosition == null || !oldPosition.newerThan(newPosition))) {
-			// Don't write out if position has not changed
-			if (!newPosition.equals(oldPosition))
-				store(newPosition);
-
-			// But safe to renew session (heartbeats, etc). Position hasn't changed but we've done work
-			ConsulLock.renewSession();
-		}
+		if ( newPosition != null && newPosition.newerThan(oldPosition))
+			store(newPosition);
 
 		try {
 			Thread.sleep(1000);
@@ -119,8 +113,11 @@ public class MysqlPositionStore extends RunLoopProcess implements Runnable {
 	}
 
 	public synchronized void set(BinlogPosition p) {
-		if ( position.get() == null || p.newerThan(position.get()) )
+		if ( position.get() == null || (p != null && p.newerThan(position.get())) )
 			position.set(p);
+		
+		// But safe to renew session (heartbeats, etc). Position hasn't changed but we've done work
+		ConsulLock.renewSession();
 	}
 
 	public void setSync(BinlogPosition p) throws SQLException {
