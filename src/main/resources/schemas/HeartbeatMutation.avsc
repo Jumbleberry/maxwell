@@ -17,7 +17,7 @@
 		},
 		{
 			"name": "primary_key",
-			"type": ["string", "null"]
+			"type": { "type": "array", "items": "string" }
 		},
  		{
             "name": "binlog_position",

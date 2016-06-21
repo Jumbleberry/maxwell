@@ -247,7 +247,7 @@ public class RowMap implements Serializable {
 		avroData.put("database", this.database);
 		avroData.put("table", this.table);		
 		avroData.put("timestamp", getTimestamp());
-		avroData.put("primary_key", this.pkColumns.toString());
+		avroData.put("primary_key", this.pkColumns);
 
 		GenericRecord subRecord = avroData.getSubRecord("binlog_position");
 		avroData.put(subRecord, "offset", nextPosition.getOffset());
