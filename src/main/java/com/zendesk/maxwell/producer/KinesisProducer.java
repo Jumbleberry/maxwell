@@ -30,7 +30,8 @@ public class KinesisProducer extends AbstractProducer {
 	static final Logger LOGGER = LoggerFactory.getLogger(KinesisProducer.class);
 	protected final com.amazonaws.services.kinesis.producer.KinesisProducer kinesis;
 
-	protected final int maxSize = (int) Math.pow(2, 16);
+	protected final int maxSize = (int) Math.pow(2, 14);
+	protected final int maxTransactions = Math.floorDiv(maxSize, 4);
 	protected final String streamName;
 
 	protected final AtomicInteger keys = new AtomicInteger(0);
@@ -67,17 +68,18 @@ public class KinesisProducer extends AbstractProducer {
 		KinesisProducerConfiguration config = new KinesisProducerConfiguration()
 				.setRecordMaxBufferedTime(kinesisMaxBufferedTime)
 				.setMaxConnections(kinesisMaxConnections)
-				.setMinConnections(8)
+				.setMinConnections(4)
 				.setRequestTimeout(kinesisRequestTimeout)
 				.setConnectTimeout(kinesisConnectTimeout)
 				.setRecordTtl(kinesisRequestTimeout + kinesisConnectTimeout + 1000)
+				.setCollectionMaxSize((int) Math.pow(2, 20))
 				.setRegion(kinesisRegion)
 				.setCredentialsProvider(new SystemPropertiesCredentialsProvider());
 
 		this.kinesis = new com.amazonaws.services.kinesis.producer.KinesisProducer(config);
 
 		// Set up message queue
-		this.queueSize = new Semaphore((int) (maxSize / 4));
+		this.queueSize = new Semaphore(maxTransactions);
 		this.queue = new ConcurrentHashMap<String, LinkedBlockingQueue<RowMap>>(maxSize);
 		this.inFlight = new ConcurrentHashMap<String, RowMap>(maxSize);
 
@@ -89,6 +91,8 @@ public class KinesisProducer extends AbstractProducer {
 	@Override
 	public void push(RowMap r) throws Exception {
 		try {
+			// Get partition key
+			String key = DigestUtils.sha256Hex(r.getTable() + r.pkAsConcatString());
 			
 			if (!r.isHeartbeat()) {
 				
@@ -103,21 +107,21 @@ public class KinesisProducer extends AbstractProducer {
 			// index 0 will acquire room in the queue system
 			if (r.getIndex() == 0)
 				queueSize.acquire();
-			
-			// Get partition key
-			String key = DigestUtils.sha256Hex(r.getTable() + r.pkAsConcatString());
 
 			// Get an instance of a queue segmented by partition key
 			LinkedBlockingQueue<RowMap> localQueue = queue.get(key);
 			if (localQueue == null) 
-				localQueue = new LinkedBlockingQueue<RowMap>();
-
+				queue.putIfAbsent(key, localQueue = new LinkedBlockingQueue<RowMap>());
+			
+			int localSize;
 			synchronized (localQueue) {
 				localQueue.add(r);
-				queue.putIfAbsent(key, localQueue);
-
-				if (localQueue.size() == 1)
-					pushToKinesis(key, r);
+				localSize = localQueue.size();
+			}
+			
+			if (localSize == 1) {
+				pushToKinesis(key, r);
+				return;
 			}
 		} catch (InterruptedException e) {
 			// If this thread is interrupted we want to signal to stop
@@ -133,17 +137,21 @@ public class KinesisProducer extends AbstractProducer {
 			synchronized (localQueue) {
 				localQueue.take();
 				next = localQueue.peek();
-
-				// Cleanup the queue if we've exhausted all elements
-				if (next == null)
-					queue.remove(key);
-
 			}
+			
+			// Cleanup the queue if we've exhausted all elements
+			if (next != null) {
+				statsd.increment("producer.deque", "type:chained");
+				return next;
+			}
+			
+			queue.remove(key);
+
 		} catch (InterruptedException e) {
 			LOGGER.error("Interrupted while removing element from the queue");
 			System.exit(1);
 		}
-
+		
 		return next;
 	}
 
@@ -245,9 +253,7 @@ public class KinesisProducer extends AbstractProducer {
 					this.kinesis.addUserRecord(streamName, key, data);
 
 			Futures.addCallback(response, callBack);
-
-			return;
-
+			
 		} catch (Exception e) {
 			LOGGER.error("Failed to serialize to avro." + e.getStackTrace());
 			e.printStackTrace();
