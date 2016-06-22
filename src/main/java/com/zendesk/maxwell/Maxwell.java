@@ -44,15 +44,7 @@ public class Maxwell {
 		if ( this.config.log_level != null )
 			MaxwellLogging.setLevel(this.config.log_level);		
 
-		LOGGER.info("Trying to acquire Consul lock on host: " + this.config.consulUrl);		
-
-		if (!ConsulLock.AcquireLock(this.config.consulUrl, this.config.consulKey)) {
-			LOGGER.error("Failed to acquire Consul lock on host: " + this.config.consulUrl);
-			return;
-		}
-
-		LOGGER.info("Consul lock acquired with session: " + ConsulLock.getSessionId());
-
+		new ConsulLock(this.config.consulUrl, this.config.consulKey);
 		this.context = new MaxwellContext(this.config);
 
 		this.context.probeConnections();
