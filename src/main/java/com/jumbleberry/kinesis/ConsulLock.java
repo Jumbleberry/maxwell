@@ -24,9 +24,9 @@ public class ConsulLock
 	private static final int lockDelay = 30;
 	private static final int lockTtl = 120;
 
-	
+
 	static final Logger LOGGER = LoggerFactory.getLogger(ConsulLock.class);
-	
+
 	private static Consul consul;	
 	private static String kvKey;
 	private static KeyValueClient kvClient;
@@ -37,7 +37,7 @@ public class ConsulLock
 
 	private static long sessionRefresh = 0;
 	private static long heartbeatStart = 0;
-	
+
 	class ConsulHeartbeat extends Thread {
 		public void run() throws ConsulException {
 			for (;;) {					
@@ -45,11 +45,11 @@ public class ConsulLock
 					// Renew the heartbeat session if renewal is pending
 					if (ConsulLock.isSessionPendingRenewal())
 						ConsulLock.renewSession();
-					
+
 					// Check if the lock is locked to our session
 					if (!ConsulLock.hasLockSession())
 						break;
-					
+
 					Thread.sleep(Math.max(Math.min(lockDelay, lockTtl) * 500, 1000));
 				} catch (Exception e) {				
 					LOGGER.error("ConsulHeartbeat: " + e.getMessage());		
@@ -73,13 +73,13 @@ public class ConsulLock
 	public ConsulLock(String url, String key) throws InterruptedException {				
 		LOGGER.info("Trying to acquire Consul lock on host: " + url);
 		buildSession(url, key);
-		
+
 		// Keep trying to get a lock for our session
 		while (!kvClient.acquireLock(kvKey, sessionId)) {			
 			Thread.sleep(lockWait);
 			renewSession();
 		}		
-		
+
 		// Start the heartbeat
 		heartbeatStart = sessionRefresh = System.currentTimeMillis();
 		heartbeat.start();
@@ -99,7 +99,7 @@ public class ConsulLock
 		consul = Consul.builder().withUrl(url).build();
 		kvClient = consul.keyValueClient();
 		sessionClient = consul.sessionClient();	
-		
+
 		SessionCreatedResponse response = sessionClient.createSession(ImmutableSession.builder().lockDelay(lockDelay + "s").ttl(lockTtl + "s").build());	
 		sessionId = response.getId();
 
@@ -111,7 +111,7 @@ public class ConsulLock
 				System.exit(1);
 			}
 		});
-		
+
 		Runtime.getRuntime().addShutdownHook(new Thread() {
 			public void run() {
 				LOGGER.error("Releasing Consul lock during shutdown sequence");
@@ -162,11 +162,11 @@ public class ConsulLock
 	public static boolean hasLockSession() throws ConsulException {
 		if (kvClient == null)
 			throw new ConsulException("KeyValueClient not initialized");		
-		
+
 		Value v = kvClient.getValue(kvKey).orNull();
 		return v != null && sessionId != null && sessionId.equals(v.getSession().orNull());
 	}
-	
+
 	/**
 	 * Set whether the heartbeat thread should renew the session
 	 * @param b
@@ -174,7 +174,7 @@ public class ConsulLock
 	public static void setSessionPendingRenewal(boolean b) {
 		pendingRefresh.set(b);
 	}
-	
+
 	/**
 	 * Return whether or not the session was voted to be renewed
 	 * @return boolean
@@ -182,20 +182,20 @@ public class ConsulLock
 	public static boolean isSessionPendingRenewal() {
 		return (sessionRefresh + (Math.floor(lockTtl * 1000 / 8)) <= System.currentTimeMillis()) && pendingRefresh.get();
 	}
-	
+
 	/**
 	 * Renew the session to keep it alive
 	 */
 	public static void renewSession() throws ConsulException {
 		if (sessionClient == null)
 			throw new ConsulException("SessionClient not initialized");
-		
-		
+
+
 		sessionClient.renewSession(sessionId);
 		sessionRefresh = System.currentTimeMillis();
 		setSessionPendingRenewal(false);
 	}
-	
+
 	/**
 	 * Keep track of whether or not we should attempt to fire off a heartbeat event
 	 */

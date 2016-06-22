@@ -143,10 +143,10 @@ public class AvroData {
 	 */
 	private static Schema getSchema(String schemaFile) throws IOException {
 		String path = schemaDirectory + schemaFile;
-		
+
 		if (!avroSchemas.containsKey(path))
 			avroSchemas.putIfAbsent(path, new Schema.Parser().parse(AvroData.class.getResourceAsStream(path)));
-		
+
 		return avroSchemas.get(path);
 	}	
 

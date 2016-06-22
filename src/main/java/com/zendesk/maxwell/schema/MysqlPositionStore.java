@@ -115,7 +115,7 @@ public class MysqlPositionStore extends RunLoopProcess implements Runnable {
 	public synchronized void set(BinlogPosition p) {
 		if ( position.get() == null || (p != null && p.newerThan(position.get())) )
 			position.set(p);
-		
+
 		// But safe to renew session (heartbeats, etc). Position hasn't changed but we've done work
 		ConsulLock.setSessionPendingRenewal(true);
 	}

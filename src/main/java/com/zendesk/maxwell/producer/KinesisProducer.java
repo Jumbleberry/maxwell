@@ -43,23 +43,23 @@ public class KinesisProducer extends AbstractProducer {
 
 	protected final ConcurrentLinkedHashMap<BinlogPosition, RowMapContext> positions;
 	protected final ConcurrentHashMap<RowMap, Integer> attempts;
-	
+
 	protected BinlogPosition mostRecentPosition;
 
 	protected final NonBlockingStatsDClient statsd;
-	
+
 	private class RowMapContext {
 		public AtomicInteger remainingRows;
 		public boolean isTxCommit;
 		public long Xid;
-		
+
 		public RowMapContext(RowMap r) {
 			this.remainingRows = new AtomicInteger(r.getEffectedRows());
 			this.isTxCommit = r.isTXCommit();
 			this.Xid = r.getXid();
 		}
 	}
-	
+
 	public KinesisProducer(
 			MaxwellContext context,
 			String kinesisAccessKeyId,
@@ -103,7 +103,7 @@ public class KinesisProducer extends AbstractProducer {
 		Builder<BinlogPosition, RowMapContext> builder = new Builder<BinlogPosition,RowMapContext>();
 		this.positions = builder.maximumWeightedCapacity(maxSize).build();
 		this.attempts = new ConcurrentHashMap<RowMap, Integer>(maxSize);
-		
+
 		metricsReporter();
 	}
 
@@ -112,19 +112,19 @@ public class KinesisProducer extends AbstractProducer {
 		try {
 			// Get partition key
 			String key = DigestUtils.sha256Hex(r.getTable() + r.pkAsConcatString());
-			
+
 			if (!r.isHeartbeat()) {
-				
+
 				// Don't allow re-processing of older events
 				if (mostRecentPosition != null && mostRecentPosition.newerThan(r.getPosition()))
 					return;
-				
+
 				// Keep track of most recent position we've seen
 				mostRecentPosition = r.getPosition();
 			}
-			
+
 			long startTime = System.currentTimeMillis();
-			
+
 			// index 0 will acquire room in the queue system
 			if (r.getIndex() == 0) {
 				queueSize.acquire();
@@ -135,24 +135,24 @@ public class KinesisProducer extends AbstractProducer {
 			LinkedBlockingQueue<RowMap> localQueue = queue.get(key);
 			if (localQueue == null) 
 				queue.putIfAbsent(key, localQueue = new LinkedBlockingQueue<RowMap>());
-			
+
 			int localSize;
 			synchronized (localQueue) {
 				localQueue.add(r);
 				localSize = localQueue.size();
 			}
-			
+
 			// Record amount of time it took to get the permit
 			statsd.recordHistogramValue("producer.wait", System.currentTimeMillis() - startTime);
-			
+
 			if (localSize == 1) {
 				statsd.increment("producer.inflight.queue", getTags(r, "type:immediate"));
 				pushToKinesis(key, r);
 				return;
 			}
-			
+
 			statsd.increment("producer.inflight.queue", getTags(r, "type:delayed"));
-			
+
 		} catch (InterruptedException e) {
 			// If this thread is interrupted we want to signal to stop
 			System.exit(1);
@@ -168,20 +168,20 @@ public class KinesisProducer extends AbstractProducer {
 				localQueue.take();
 				next = localQueue.peek();
 			}
-			
+
 			// Cleanup the queue if we've exhausted all elements
 			if (next != null) {
 				statsd.increment("producer.inflight.queue", getTags(r, "type:chained"));
 				return next;
 			}
-			
+
 			queue.remove(key);
 
 		} catch (InterruptedException e) {
 			LOGGER.error("Interrupted while removing element from the queue");
 			System.exit(1);
 		}
-		
+
 		return next;
 	}
 
@@ -210,7 +210,7 @@ public class KinesisProducer extends AbstractProducer {
 		BinlogPosition minPosition = null;
 		BinlogPosition position = r.getPosition();
 		int remainingRows = !isHeartbeat? positions.get(position).remainingRows.decrementAndGet(): 0;
-				
+
 		// If remaining rows reaches 0, prune the outstanding records 
 		if (remainingRows <= 0) {
 			try {
@@ -220,11 +220,11 @@ public class KinesisProducer extends AbstractProducer {
 						// If entry is > 0, we're still waiting on elements and can't continue
 						if (entry.getValue().remainingRows.get() > 0)
 							break;
-						
+
 						// Only save positions for transactional commits so we don't resume mid-transaction 
 						if (entry.getValue().isTxCommit)
 							minPosition = entry.getKey();
-						
+
 						// Attempt to remove the key from the tracker & release a key if we're the first to remove it
 						positions.remove(entry.getKey());
 						queueSize.release();
@@ -243,7 +243,7 @@ public class KinesisProducer extends AbstractProducer {
 		try {
 			ByteBuffer data = ByteBuffer.wrap(r.toAvro().toByteArray());
 			statsd.histogram("producer.rowmap.size", data.remaining(), getTags(r));
-			
+
 			addToInFlight(key, r);
 
 			FutureCallback<UserRecordResult> callBack = 
@@ -258,14 +258,14 @@ public class KinesisProducer extends AbstractProducer {
 							this.start = System.currentTimeMillis();
 							return this;
 						}
-						
+
 						public void reportStats(String outcome) {
 							statsd.histogram("producer.kpl.latency", System.currentTimeMillis() - start, getTags(r, "status:" + outcome));
 						}
 
 						@Override public void onFailure(Throwable t) { 
 							reportStats("error");
-							
+
 							int attemptCount = attempts.put(this.r, attempts.get(this.r) + 1);
 							if (attemptCount < 3) {
 								pushToKinesis(key, r);
@@ -279,7 +279,7 @@ public class KinesisProducer extends AbstractProducer {
 						@Override 
 						public void onSuccess(UserRecordResult result) {
 							reportStats("success");
-							
+
 							removeFromInFlight(key, r);
 							RowMap next = popAndGetNext(key, r);
 
@@ -294,26 +294,26 @@ public class KinesisProducer extends AbstractProducer {
 					this.kinesis.addUserRecord(streamName, key, data);
 
 			Futures.addCallback(response, callBack);
-			
+
 		} catch (Exception e) {
 			LOGGER.error("Failed to serialize to avro." + e.getStackTrace());
 			e.printStackTrace();
 			System.exit(1);
 		}
 	}
-	
+
 	public String[] getTags(RowMap r, String... args) {
 		String[] tags = {
-			"database:" + r.getDatabase(),
-			"table:" + r.getTable()
+				"database:" + r.getDatabase(),
+				"table:" + r.getTable()
 		};
-		
+
 		for (String arg: args)
 			tags = (String[]) ArrayUtils.add(tags, arg);
-		
+
 		return tags;
 	}
-	
+
 	public void metricsReporter() {
 		(new Thread() {
 			public void run() {
@@ -324,7 +324,7 @@ public class KinesisProducer extends AbstractProducer {
 						statsd.recordGaugeValue("producer.positions", positions.size());
 						statsd.recordGaugeValue("producer.permits.available", queueSize.availablePermits());
 						statsd.recordGaugeValue("producer.permits.used", maxTransactions - queueSize.availablePermits());
-						
+
 						Thread.sleep(1000);
 					} catch (InterruptedException e) {}
 				}
