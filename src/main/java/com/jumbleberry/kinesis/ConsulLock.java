@@ -51,7 +51,7 @@ public class ConsulLock
 		}		
 
 		// Start the heartbeat
-		heartbeatStart = System.currentTimeMillis();
+		heartbeatStart = sessionRefresh = System.currentTimeMillis();
 		heartbeat.start();	
 
 		return true;
