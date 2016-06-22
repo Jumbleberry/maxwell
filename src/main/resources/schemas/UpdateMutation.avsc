@@ -12,41 +12,66 @@
 			"type": "string"
 		},
 		{
+			"name": "timestamp",
+			"type": "long"
+		},
+		{
+			"name": "primary_key",
+			"type": { "type": "array", "items": "string" }
+		},
+ 		{
+            "name": "binlog_position",
+            "type": {
+                "name": "BinlogPosition",
+                "type": "record",
+                "fields": [
+                    {
+                        "name": "offset",
+                        "type": "long"
+                    },
+                    {
+                        "name": "file",
+                        "type": "string"
+                    }
+                ]
+            }
+        },		
+		{
 		    "name": "txid",
 		    "type": ["null", {"name": "Guid", "type": "fixed", "size":16}],
 		    "default": "null"
 		},
 		{
-			"name": "new_strings",
-			"type": {"type": "map", "values": "string"}
+			"name": "new_bytes",
+			"type": {"type": "map", "values": ["bytes", "null"]}
 		},
 		{
 			"name": "new_integers",
-			"type": {"type": "map", "values": "int"}
+			"type": {"type": "map", "values": ["int", "null"]}
+		},
+		{
+			"name": "new_strings",
+			"type": {"type": "map", "values": ["string", "null"]}
 		},
 		{
 			"name": "new_longs",
-			"type": {"type": "map", "values": "long"}
-		},
-		{
-			"name": "new_bytes",
-			"type": {"type": "map", "values": "bytes"}
-		},
-		{
-			"name": "old_strings",
-			"type": {"type": "map", "values": "string"}
-		},
-		{
-			"name": "old_integers",
-			"type": {"type": "map", "values": "int"}
-		},
-		{
-			"name": "old_longs",
-			"type": {"type": "map", "values": "long"}
+			"type": {"type": "map", "values": ["long", "null"]}
 		},
 		{
 			"name": "old_bytes",
-			"type": {"type": "map", "values": "bytes"}
+			"type": {"type": "map", "values": ["bytes", "null"]}
+		},
+		{
+			"name": "old_integers",
+			"type": {"type": "map", "values": ["int", "null"]}
+		},
+		{
+			"name": "old_strings",
+			"type": {"type": "map", "values": ["string", "null"]}
+		},
+		{
+			"name": "old_longs",
+			"type": {"type": "map", "values": ["long", "null"]}
 		}
 	]
 }

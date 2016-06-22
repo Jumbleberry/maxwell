@@ -76,7 +76,11 @@ public class MaxwellUpdateRowsEvent extends MaxwellAbstractRowsEvent {
 	@Override
 	public List<RowMap> jsonMaps() {
 		ArrayList<RowMap> list = new ArrayList<>();
-		for (Pair<Row> p : filteredRowsBeforeAndAfter() ) {
+		List<Pair<Row>> rows = filteredRowsBeforeAndAfter();
+		int i 	 = 0;
+		int size = rows.size();
+
+		for (Pair<Row> p : rows ) {
 			Row after = p.getAfter();
 			Row before = p.getBefore();
 
@@ -87,7 +91,7 @@ public class MaxwellUpdateRowsEvent extends MaxwellAbstractRowsEvent {
 			else
 				rowMap = buildRowMap();
 
-            rowMap.setAssociatedRows(filteredRowsBeforeAndAfter().size());
+			rowMap.setSegmentData(i++, size);
 
 			for ( ColumnWithDefinition cd : new ColumnWithDefinitionList(table, after, event.getUsedColumnsAfter())) {
 				rowMap.putData(cd.definition.getName(), cd.asJSON());

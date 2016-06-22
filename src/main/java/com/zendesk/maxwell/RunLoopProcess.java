@@ -43,7 +43,7 @@ abstract public class RunLoopProcess {
 	protected void beforeStop() throws Exception { }
 
 	public void stopLoop() throws TimeoutException {
-		stopLoop(5000);
+		stopLoop(15000);
 	}
 
 	public void stopLoop(long timeoutMS) throws TimeoutException {

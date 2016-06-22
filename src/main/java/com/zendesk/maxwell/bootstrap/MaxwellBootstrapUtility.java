@@ -141,7 +141,7 @@ public class MaxwellBootstrapUtility {
 
 	private Long getTotalRowCount(Connection connection, Long bootstrapRowID) throws SQLException, MissingBootstrapRowException {
 		ResultSet resultSet =
-			connection.createStatement().executeQuery("select total_rows from `bootstrap` where id = " + bootstrapRowID);
+				connection.createStatement().executeQuery("select total_rows from `bootstrap` where id = " + bootstrapRowID);
 		if ( resultSet.next() ) {
 			return resultSet.getLong(1);
 		} else {

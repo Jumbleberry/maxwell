@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericData;
@@ -24,21 +25,22 @@ public class AvroData {
 	private static final String schemaSuffix = "Mutation.avsc";
 	private final Schema schema;
 	private static final String[] schemaDataTypes = {"strings", "integers", "longs", "bytes"};	
-	
+
 	private GenericRecord record;
 	private HashMap<String, String> header;
-	
+	private static ConcurrentHashMap<String, Schema> avroSchemas = new ConcurrentHashMap<String, Schema>(8);
+
 	public AvroData(String rowType) throws IOException {
 		String schemaName = ucfirst(rowType) + schemaSuffix;
-		
+
 		this.schema = getSchema(schemaName);
 		this.record = new GenericData.Record(schema);				
-		
+
 		this.header = new HashMap<String, String>();
 		this.header.put("schema", schemaName);
 		this.header.put("action", rowType);
 	}
-	
+
 	/**
 	 * Sort data into buckets for the schema
 	 * 
@@ -52,10 +54,20 @@ public class AvroData {
 		HashMap<String, Object> integers = new HashMap<String, Object>();
 		HashMap<String, Object> longs = new HashMap<String, Object>();
 		HashMap<String, Object> bytes = new HashMap<String, Object>();
-		
+
 		// Sort mySQL data types into buckets
 		for ( String key: data.keySet() ) {
+			Object val = data.get(key);
+
 			switch (tableSchema.get(key).toString()) {
+				case "tinyint":
+				case "smallint":
+				case "int":
+					integers.put(key, val == null? null: Integer.parseInt(val.toString()));
+					break;
+				case "bigint":
+					longs.put(key, val == null? null: Long.parseLong(val.toString()));
+					break;
 				case "decimal":
 				case "float":
 				case "double":
@@ -72,34 +84,24 @@ public class AvroData {
 				case "mediumblob":
 				case "longblob":
 				case "blob":
-				case "text":				
-					strings.put(key, data.get(key).toString());
-					break;
-				case "tinyint":
-				case "smallint":
-				case "int":
-					integers.put(key, data.get(key));
-					break;
-				case "bigint":
-					longs.put(key, new Long((Integer) data.get(key)));
-					break;
+				case "text":	
 				default:
-					strings.put(key, data.get(key).toString());
+					strings.put(key, val == null? null: val.toString());
 					break;
 			}
-			
+
 		}			
-		
+
 		// Create a master bucket
 		HashMap<String, HashMap<String, Object>> typeContainer = new HashMap<String, HashMap<String, Object>>();
 		typeContainer.put("strings", strings);
 		typeContainer.put("integers", integers);
 		typeContainer.put("longs", longs);
 		typeContainer.put("bytes", bytes);		
-		
+
 		return typeContainer;
 	}
-	
+
 	/**
 	 * Transform the record to a byte array
 	 * 
@@ -109,10 +111,10 @@ public class AvroData {
 	public byte[] toByteArray() throws IOException {
 		ByteArrayOutputStream baos = new ByteArrayOutputStream();
 		BinaryEncoder bencoder = EncoderFactory.get().binaryEncoder(baos, null);
-		
+
 		// Create the writer
 		DatumWriter<GenericRecord> datumWriter = new GenericDatumWriter<GenericRecord>(schema);										
-		
+
 		// Write header
 		bencoder.setItemCount(header.size());
 		bencoder.writeMapStart();
@@ -122,16 +124,16 @@ public class AvroData {
 			bencoder.writeString(header.get(key));
 		}
 		bencoder.writeMapEnd();				
-				
+
 		// Write record
 		datumWriter.write(record, bencoder);						
-		
+
 		// Write to the output stream
 		bencoder.flush();		
-						
+
 		return baos.toByteArray();		
 	}	
-	
+
 	/**
 	 * Get a schema for the type of mySQL action
 	 * 
@@ -139,10 +141,15 @@ public class AvroData {
 	 * @return 
 	 * @throws IOException
 	 */
-	private static Schema getSchema(String schemaFile) throws IOException {				
-		return new Schema.Parser().parse(AvroData.class.getResourceAsStream(schemaDirectory + schemaFile));								
+	private static Schema getSchema(String schemaFile) throws IOException {
+		String path = schemaDirectory + schemaFile;
+
+		if (!avroSchemas.containsKey(path))
+			avroSchemas.putIfAbsent(path, new Schema.Parser().parse(AvroData.class.getResourceAsStream(path)));
+
+		return avroSchemas.get(path);
 	}	
-	
+
 	/**
 	 * Set the value for the field of the record
 	 * 
@@ -150,9 +157,20 @@ public class AvroData {
 	 * @param Object value
 	 */
 	public void put(String field, Object value) {
-		record.put(field, value);
+		this.record.put(field, value);
 	}
-		
+
+	/**
+	 * Set the value for the file of a specific record
+	 * 
+	 * @param record
+	 * @param field
+	 * @param value
+	 */
+	public void put(GenericRecord record, String field, Object value) {
+		record.put(field, value);
+	}	
+
 	/**
 	 * Return the GenericRecord
 	 * 
@@ -161,7 +179,19 @@ public class AvroData {
 	public GenericRecord getRecord() {
 		return this.record;
 	}
-	
+
+	/**
+	 * Return the record for a field
+	 * 
+	 * @param field
+	 * @return
+	 */
+	public GenericRecord getSubRecord(String field) {
+		GenericRecord subRecord = new GenericData.Record(this.schema.getField(field).schema());
+
+		return subRecord;
+	}
+
 	/**
 	 * Return the Schema
 	 * 
@@ -170,7 +200,7 @@ public class AvroData {
 	public Schema getSchema() {
 		return this.schema;
 	}
-	
+
 	/**
 	 * Get the list of data types for the schema
 	 * 
@@ -179,7 +209,7 @@ public class AvroData {
 	public static String[] getSchemaDataTypes() {
 		return schemaDataTypes;
 	}
-	
+
 	/**
 	 * Java implementation of PHP ucfirst because Dave misses it
 	 * 
@@ -187,9 +217,9 @@ public class AvroData {
 	 * @return String
 	 */
 	final public static String ucfirst(String subject) {
-	    return Character.toUpperCase(subject.charAt(0)) + subject.substring(1);
+		return Character.toUpperCase(subject.charAt(0)) + subject.substring(1);
 	}		
-	
+
 	/**
 	 * Deserialize an Avro byte array
 	 * 
@@ -199,10 +229,10 @@ public class AvroData {
 	 */
 	public static String deserializeByteArray(byte[] data) throws IOException {
 		String response = "";						
-		
+
 		// Create a binary decoder to read the byte array
 		BinaryDecoder bdecoder = DecoderFactory.get().binaryDecoder(new ByteArrayInputStream(data), null);									
-		
+
 		// While not EOF
 		while (!bdecoder.isEnd()) {
 			// Read header
@@ -211,18 +241,18 @@ public class AvroData {
 				for (long j = 0; j < i; j++) {							
 					String key = bdecoder.readString();
 					String value = bdecoder.readString();
-					
+
 					header.put(key, value);
 				}
 			}
-			
-			Schema writeSchema = new Schema.Parser().parse(AvroData.class.getResourceAsStream(schemaDirectory + header.get("schema")));
+
+			Schema writeSchema = getSchema(header.get("schema"));
 			DatumReader<GenericRecord> datumReader = new GenericDatumReader<GenericRecord>(writeSchema);			
-			
+
 			// Read the entry
 			response += datumReader.read(null, bdecoder);
 		}
-		
+
 		return response;		
 	}
 }

@@ -4,12 +4,11 @@ import java.nio.ByteBuffer;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
-
-import com.zendesk.maxwell.BinlogPosition;
-import com.zendesk.maxwell.MaxwellContext;
-import com.zendesk.maxwell.RowMap;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.commons.codec.digest.DigestUtils;
+import org.apache.commons.lang.ArrayUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -21,233 +20,315 @@ import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.googlecode.concurrentlinkedhashmap.ConcurrentLinkedHashMap;
 import com.googlecode.concurrentlinkedhashmap.ConcurrentLinkedHashMap.Builder;
+import com.zendesk.maxwell.BinlogPosition;
+import com.zendesk.maxwell.MaxwellContext;
+import com.zendesk.maxwell.RowMap;
+
+import com.timgroup.statsd.NonBlockingStatsDClient;
 
 public class KinesisProducer extends AbstractProducer {
 
-    static final Logger LOGGER = LoggerFactory.getLogger(KinesisProducer.class);
-    protected final com.amazonaws.services.kinesis.producer.KinesisProducer kinesis;
+	static final Logger LOGGER = LoggerFactory.getLogger(KinesisProducer.class);
+	protected final com.amazonaws.services.kinesis.producer.KinesisProducer kinesis;
 
-    protected final ConcurrentHashMap<String, LinkedBlockingQueue<RowMap>> queue;
-    protected int queueSize;
-    protected final int maxQueueSize = 10000;
-    protected final Object lock;
-    protected final ConcurrentHashMap<String, RowMap> inFlight;
+	protected final int maxSize = (int) Math.pow(2, 14);
+	protected final int maxTransactions = Math.floorDiv(maxSize, 4);
+	protected final String streamName;
 
-    protected String streamName;
-    protected ConcurrentLinkedHashMap<BinlogPosition, Rows> positions;
-    protected final int maxPositionSize = 10000;
-    protected ConcurrentHashMap<RowMap, Integer> attempts;
+	protected final AtomicInteger keys = new AtomicInteger(0);
 
-    public class Rows {
-		public RowMap rowMap;
-        public int count;
-        
-        public Rows(RowMap r, int i) {
-			this.rowMap = r;
-			this.count = i;
+	protected final Semaphore queueSize;
+	protected final ConcurrentHashMap<String, LinkedBlockingQueue<RowMap>> queue;
+	protected final ConcurrentHashMap<String, RowMap> inFlight;
+
+	protected final ConcurrentLinkedHashMap<BinlogPosition, RowMapContext> positions;
+	protected final ConcurrentHashMap<RowMap, Integer> attempts;
+
+	protected BinlogPosition mostRecentPosition;
+
+	protected final NonBlockingStatsDClient statsd;
+
+	private class RowMapContext {
+		public AtomicInteger remainingRows;
+		public boolean isTxCommit;
+		public long Xid;
+
+		public RowMapContext(RowMap r) {
+			this.remainingRows = new AtomicInteger(r.getEffectedRows());
+			this.isTxCommit = r.isTXCommit();
+			this.Xid = r.getXid();
 		}
-    }
+	}
 
-    public KinesisProducer(
-            MaxwellContext context,
-            String kinesisAccessKeyId,
-            String kinesisSecretKey,
-            int kinesisMaxBufferedTime,
-            int kinesisMaxConnections,
-            int kinesisRequestTimeout,
-            String kinesisRegion,
-            String kinesisStreamName
-        ) {
-        super(context);
+	public KinesisProducer(
+			MaxwellContext context,
+			String kinesisAccessKeyId,
+			String kinesisSecretKey,
+			int kinesisMaxBufferedTime,
+			int kinesisMaxConnections,
+			int kinesisRequestTimeout,
+			int kinesisConnectTimeout,
+			String kinesisRegion,
+			String kinesisStreamName
+			) {
+		super(context);
+		
+		this.statsd = new NonBlockingStatsDClient("com.kinesis", "127.0.0.1", 8125);
+		
+		this.streamName = kinesisStreamName;
 
-        // Set up AWS system properties
-        System.setProperty("aws.accessKeyId", kinesisAccessKeyId);
-        System.setProperty("aws.secretKey", kinesisSecretKey);
+		// Set up AWS system properties
+		System.setProperty("aws.accessKeyId", kinesisAccessKeyId);
+		System.setProperty("aws.secretKey", kinesisSecretKey);
 
-        // Set up AWS producer
-        KinesisProducerConfiguration config = new KinesisProducerConfiguration()
-           .setRecordMaxBufferedTime(kinesisMaxBufferedTime)
-           .setMaxConnections(kinesisMaxConnections)
-           .setRequestTimeout(kinesisRequestTimeout)
-           .setRegion(kinesisRegion)
-           .setCredentialsProvider(new SystemPropertiesCredentialsProvider());
-        
-        this.kinesis = new com.amazonaws.services.kinesis.producer.KinesisProducer(config);
-        
-        // Set up message queue
-        this.queue = new ConcurrentHashMap<String, LinkedBlockingQueue<RowMap>>();
-        this.queueSize = 0;
-        this.inFlight = new ConcurrentHashMap<String, RowMap>();
-        this.lock = new Object();
+		// Set up AWS producer
+		KinesisProducerConfiguration config = new KinesisProducerConfiguration()
+				.setRecordMaxBufferedTime(kinesisMaxBufferedTime)
+				.setMaxConnections(kinesisMaxConnections)
+				.setMinConnections(4)
+				.setRequestTimeout(kinesisRequestTimeout)
+				.setConnectTimeout(kinesisConnectTimeout)
+				.setRecordTtl(kinesisRequestTimeout + kinesisConnectTimeout + 1000)
+				.setCollectionMaxSize((int) Math.pow(2, 20))
+				.setRegion(kinesisRegion)
+				.setCredentialsProvider(new SystemPropertiesCredentialsProvider());
 
-        this.streamName = kinesisStreamName;
-        Builder<BinlogPosition, Rows> builder = new Builder<BinlogPosition,Rows>();
-        this.positions = builder.maximumWeightedCapacity(this.maxPositionSize).build();
-        this.attempts = new ConcurrentHashMap<RowMap, Integer>();
-    }
+		this.kinesis = new com.amazonaws.services.kinesis.producer.KinesisProducer(config);
 
-    @Override
-    public void push(RowMap r) throws Exception {
-        // Get partition key
-        String key = DigestUtils.sha256Hex(r.getTable() + r.pkAsConcatString());
+		// Set up message queue
+		this.queueSize = new Semaphore(maxTransactions);
+		this.queue = new ConcurrentHashMap<String, LinkedBlockingQueue<RowMap>>(maxSize);
+		this.inFlight = new ConcurrentHashMap<String, RowMap>(maxSize);
 
-        LinkedBlockingQueue<RowMap> localQueue = queue.get(key);
-        if (localQueue == null) 
-            localQueue = new LinkedBlockingQueue<RowMap>();
-       
-        synchronized (localQueue) {
-            queue.putIfAbsent(key, localQueue);
-            addToQueue(key, r);
-            
-            if (localQueue.size() == 1)
-                addToInFlight(key, r);
-        }
-    }
+		Builder<BinlogPosition, RowMapContext> builder = new Builder<BinlogPosition,RowMapContext>();
+		this.positions = builder.maximumWeightedCapacity(maxSize).build();
+		this.attempts = new ConcurrentHashMap<RowMap, Integer>(maxSize);
 
-    protected void addToQueue(String key, RowMap r) throws Exception {
-    	if (queueSize > maxQueueSize) {
-    		synchronized(lock) {
-        		lock.wait();
-    		}
-    	}
-        queue.get(key).add(r);
-        ++queueSize;
+		metricsReporter();
+	}
 
-        // Add to binlog position tracker if its new
-        BinlogPosition newPosition = r.getPosition();
-        if (! positions.containsKey(newPosition)) {
-            positions.put(newPosition, new Rows(r, r.getAssociatedRows()));
-        }
-    }
+	@Override
+	public void push(RowMap r) throws Exception {
+		try {
+			// Get partition key
+			String key = DigestUtils.sha256Hex(r.getTable() + r.pkAsConcatString());
 
-    protected RowMap getNextInQueue(String key, RowMap r) throws InterruptedException {
-        LinkedBlockingQueue<RowMap> list = queue.get(key);
-        list.take();
-        --queueSize;
-        synchronized(lock) {
-        	lock.notifyAll();
-        }
-        return list.peek();
-    }
+			if (!r.isHeartbeat()) {
 
-    protected void addToInFlight(String key, RowMap r) throws Exception {
-        inFlight.put(key, r);
-        pushToKinesis(key, r);
-    }
-    
-    protected void removeFromInFlight(String key, RowMap r) throws Exception {
-        inFlight.remove(key);
-        
-        synchronized(positions) {
-            updateMinBinlogPosition(r);
-        }
-    }
+				// Don't allow re-processing of older events
+				if (mostRecentPosition != null && mostRecentPosition.newerThan(r.getPosition()))
+					return;
 
-    protected void updateMinBinlogPosition(RowMap r) throws Exception{
+				// Keep track of most recent position we've seen
+				mostRecentPosition = r.getPosition();
+			}
 
-        BinlogPosition newPosition = r.getPosition();
+			long startTime = System.currentTimeMillis();
 
-        if (positions.containsKey(newPosition)) {
-            --positions.get(newPosition).count;
-        } else {
-            LOGGER.error("Missing binlog position in Kinesis Producer.");
-        }
+			// index 0 will acquire room in the queue system
+			if (r.getIndex() == 0) {
+				queueSize.acquire();
+				statsd.recordHistogramValue("producer.affected_rows", r.getEffectedRows(), getTags(r));
+			}
 
-        BinlogPosition minBinlogPosition = null;
+			// Get an instance of a queue segmented by partition key
+			LinkedBlockingQueue<RowMap> localQueue = queue.get(key);
+			if (localQueue == null) 
+				queue.putIfAbsent(key, localQueue = new LinkedBlockingQueue<RowMap>());
 
-        // Get the latest minimum binlog position
-        int index = 0;
-        int zeroCount = 0;
-        for (Map.Entry<BinlogPosition,Rows> entry : positions.entrySet()) {
-        	// Check if all row events of the current position has been successfully processed
-            if (entry.getValue().count == 0) {
-                if (index == zeroCount++) {
-                    // Update new minimum position and remove it from positions
-                    minBinlogPosition = entry.getKey();
-                    positions.remove(entry.getKey());
-                } else {
-                    break;
-                }
-            }
-            
-            ++index;
-            if (index > zeroCount){
-            	break;
-            }
-        }
+			int localSize;
+			synchronized (localQueue) {
+				localQueue.add(r);
+				localSize = localQueue.size();
+			}
 
-        if (minBinlogPosition != null && positions.containsKey(minBinlogPosition)) {
-            context.setPosition(positions.get(minBinlogPosition).rowMap);
-        }
-    }
+			// Record amount of time it took to get the permit
+			statsd.recordHistogramValue("producer.wait", System.currentTimeMillis() - startTime);
 
-    protected void pushToKinesis(String key, RowMap r) throws Exception {
-        
-        ByteBuffer data = ByteBuffer.wrap(r.toAvro().toByteArray());
+			if (localSize == 1) {
+				statsd.increment("producer.inflight.queue", getTags(r, "type:immediate"));
+				pushToKinesis(key, r);
+				return;
+			}
 
-        FutureCallback<UserRecordResult> callBack = 
-            (new FutureCallback<UserRecordResult>() {
-                protected String key;
-                protected RowMap r;
-            
-                @Override public void onFailure(Throwable t) { 
-                    System.out.println("Failure: " + t.toString());
-                     if (attempts.containsKey(this.r)) {
-                    	 int attemptCount = attempts.get(this.r);
-                    	 attempts.put(this.r, attemptCount+1);
-                     } else {
-                    	 attempts.put(this.r, 1);
-                     }
-                     
-                     if (attempts.get(this.r) > 3) {
-                    	 // Error after three tries
-                    	 LOGGER.error("Exception during put", t);
-                     } else {
-                    	 // Re-try
-                    	 try {
-							addToQueue(this.key, this.r);
-						} catch (Exception e1) {
-                            LOGGER.error("Exception during re-try: failling add back to queue.");
+			statsd.increment("producer.inflight.queue", getTags(r, "type:delayed"));
+
+		} catch (InterruptedException e) {
+			// If this thread is interrupted we want to signal to stop
+			System.exit(1);
+		}
+	}
+
+	protected RowMap popAndGetNext(String key, RowMap r) {
+		LinkedBlockingQueue<RowMap> localQueue = queue.get(key);
+		RowMap next = null;
+
+		try {
+			synchronized (localQueue) {
+				localQueue.take();
+				next = localQueue.peek();
+			}
+
+			// Cleanup the queue if we've exhausted all elements
+			if (next != null) {
+				statsd.increment("producer.inflight.queue", getTags(r, "type:chained"));
+				return next;
+			}
+
+			queue.remove(key);
+
+		} catch (InterruptedException e) {
+			LOGGER.error("Interrupted while removing element from the queue");
+			System.exit(1);
+		}
+
+		return next;
+	}
+
+	protected void addToInFlight(String key, RowMap r) {
+		statsd.increment("producer.push", getTags(r));
+		attempts.putIfAbsent(r, 0);
+		recordBinlogPosition(r);
+		inFlight.putIfAbsent(key, r);
+	}
+
+	protected void removeFromInFlight(String key, RowMap r) {  
+		statsd.increment("producer.pop", getTags(r));
+		attempts.remove(r);
+		updateBinlogPosition(r);
+		inFlight.remove(key);
+	}
+
+	protected void recordBinlogPosition(RowMap r) {
+		if (!r.isHeartbeat() && !positions.containsKey(r.getPosition()))
+			positions.putIfAbsent(r.getPosition(), new RowMapContext(r));
+	}
+
+	protected void updateBinlogPosition(RowMap r) {
+		boolean isHeartbeat = r.isHeartbeat();
+
+		BinlogPosition minPosition = null;
+		BinlogPosition position = r.getPosition();
+		int remainingRows = !isHeartbeat? positions.get(position).remainingRows.decrementAndGet(): 0;
+
+		// If remaining rows reaches 0, prune the outstanding records 
+		if (remainingRows <= 0) {
+			try {
+				synchronized (positions) {
+					Map<BinlogPosition, RowMapContext> map = positions.ascendingMap();
+					for (Map.Entry<BinlogPosition, RowMapContext> entry : map.entrySet()) {
+						// If entry is > 0, we're still waiting on elements and can't continue
+						if (entry.getValue().remainingRows.get() > 0)
+							break;
+
+						// Only save positions for transactional commits so we don't resume mid-transaction 
+						if (entry.getValue().isTxCommit)
+							minPosition = entry.getKey();
+
+						// Attempt to remove the key from the tracker & release a key if we're the first to remove it
+						positions.remove(entry.getKey());
+						queueSize.release();
+					}
+
+					context.setPosition(minPosition);
+				}
+			} catch (Exception e) {
+				LOGGER.error("Failed to write out binlog position");
+				e.printStackTrace();
+			}
+		}
+	}
+
+	protected void pushToKinesis(String key, RowMap r) {
+		try {
+			ByteBuffer data = ByteBuffer.wrap(r.toAvro().toByteArray());
+			statsd.histogram("producer.rowmap.size", data.remaining(), getTags(r));
+
+			addToInFlight(key, r);
+
+			FutureCallback<UserRecordResult> callBack = 
+					(new FutureCallback<UserRecordResult>() {
+						protected String key;
+						protected RowMap r;
+						protected long start;
+
+						public FutureCallback<UserRecordResult> setUp(String key, RowMap r) {
+							this.key = key;
+							this.r = r;
+							this.start = System.currentTimeMillis();
+							return this;
 						}
-                     }
-                };
 
-                @Override 
-                public void onSuccess(UserRecordResult result) {
-                    System.out.println("Success: " + result.toString());
-                    try {
-                        removeFromInFlight(key, r);
-                        LinkedBlockingQueue<RowMap> localQueue = queue.get(key);
-                        
-                        synchronized (localQueue) {
-                            RowMap next = getNextInQueue(key, r);
-                            
-                            if (next != null) {
-                                addToInFlight(key, next);
-                            } else {
-                                queue.remove(key);
-                            }
-                            
-                            if (attempts.containsKey(this.r)) {
-                            	attempts.remove(this.r);
-                            }
-                        }
-                        
-                    } catch (Exception e) {
-                        LOGGER.error("Exception during Kinesis callback on success.");
-                    }
-                };
-                
-                public FutureCallback<UserRecordResult> setUp(String key, RowMap r) {
-                    this.key = key;
-                    this.r = r;
-                    return this;
-                }
-            }).setUp(key, r);
+						public void reportStats(String outcome) {
+							statsd.histogram("producer.kpl.latency", System.currentTimeMillis() - start, getTags(r, "status:" + outcome));
+						}
 
-        ListenableFuture<UserRecordResult> response =
-                this.kinesis.addUserRecord(streamName, key, data);
+						@Override public void onFailure(Throwable t) { 
+							reportStats("error");
 
-        Futures.addCallback(response, callBack);
-    }
+							int attemptCount = attempts.put(this.r, attempts.get(this.r) + 1);
+							if (attemptCount < 3) {
+								pushToKinesis(key, r);
+								return;
+							}
+
+							LOGGER.error("Maximum retry count exceeded");
+							System.exit(1);
+						};
+
+						@Override 
+						public void onSuccess(UserRecordResult result) {
+							reportStats("success");
+
+							removeFromInFlight(key, r);
+							RowMap next = popAndGetNext(key, r);
+
+							// If there's another element in the queue, send it through
+							if (next != null)
+								pushToKinesis(key, next);
+						};
+
+					}).setUp(key, r);
+
+			ListenableFuture<UserRecordResult> response =
+					this.kinesis.addUserRecord(streamName, key, data);
+
+			Futures.addCallback(response, callBack);
+
+		} catch (Exception e) {
+			LOGGER.error("Failed to serialize to avro." + e.getStackTrace());
+			e.printStackTrace();
+			System.exit(1);
+		}
+	}
+
+	public String[] getTags(RowMap r, String... args) {
+		String[] tags = {
+				"database:" + r.getDatabase(),
+				"table:" + r.getTable()
+		};
+
+		for (String arg: args)
+			tags = (String[]) ArrayUtils.add(tags, arg);
+
+		return tags;
+	}
+
+	public void metricsReporter() {
+		(new Thread() {
+			public void run() {
+				for (;;) {
+					try {
+						statsd.recordGaugeValue("producer.kpl.inflight", kinesis.getOutstandingRecordsCount());
+						statsd.recordGaugeValue("producer.inflight", inFlight.size());
+						statsd.recordGaugeValue("producer.positions", positions.size());
+						statsd.recordGaugeValue("producer.permits.available", queueSize.availablePermits());
+						statsd.recordGaugeValue("producer.permits.used", maxTransactions - queueSize.availablePermits());
+
+						Thread.sleep(1000);
+					} catch (InterruptedException e) {}
+				}
+			}
+		}).start();
+	}
 }

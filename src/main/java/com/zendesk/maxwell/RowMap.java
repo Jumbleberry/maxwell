@@ -5,6 +5,7 @@ import com.jumbleberry.kinesis.AvroData;
 import com.zendesk.maxwell.schema.Table;
 import com.zendesk.maxwell.schema.columndef.ColumnDef;
 
+import org.apache.avro.generic.GenericRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -24,7 +25,9 @@ public class RowMap implements Serializable {
 
 	static final Logger LOGGER = LoggerFactory.getLogger(RowMap.class);
 
-	private final String rowType;
+	public final static String HEARTBEAT = "heartbeat"; 
+
+	public final String rowType;
 	private final String database;
 	private final String table;
 	private final Long timestamp;
@@ -36,7 +39,8 @@ public class RowMap implements Serializable {
 	private final LinkedHashMap<String, Object> data;
 	private final LinkedHashMap<String, Object> oldData;
 	private final List<String> pkColumns;
-    private int associatedRows;
+	private int effectedRows;
+	private int index;
 	private List<Pattern> excludeColumns;
 
 	private final HashMap<String, String> tableSchema;
@@ -45,27 +49,27 @@ public class RowMap implements Serializable {
 
 	private static final ThreadLocal<ByteArrayOutputStream> byteArrayThreadLocal =
 			new ThreadLocal<ByteArrayOutputStream>(){
-				@Override
-				protected ByteArrayOutputStream initialValue() {
-					return new ByteArrayOutputStream();
-				}
-			};
+		@Override
+		protected ByteArrayOutputStream initialValue() {
+			return new ByteArrayOutputStream();
+		}
+	};
 
 	private static final ThreadLocal<JsonGenerator> jsonGeneratorThreadLocal =
 			new ThreadLocal<JsonGenerator>() {
-				@Override
-				protected JsonGenerator initialValue() {
-					JsonGenerator g = null;
-					try {
-						g = jsonFactory.createGenerator(byteArrayThreadLocal.get());
-					} catch (IOException e) {
-						LOGGER.error("error initializing jsonGenerator", e);
-						return null;
-					}
-					g.setRootValueSeparator(null);
-					return g;
-				}
-			};
+		@Override
+		protected JsonGenerator initialValue() {
+			JsonGenerator g = null;
+			try {
+				g = jsonFactory.createGenerator(byteArrayThreadLocal.get());
+			} catch (IOException e) {
+				LOGGER.error("error initializing jsonGenerator", e);
+				return null;
+			}
+			g.setRootValueSeparator(null);
+			return g;
+		}
+	};
 
 	public RowMap(String type, Table table, Long timestamp, List<String> pkColumns,
 			BinlogPosition nextPosition) {
@@ -77,14 +81,18 @@ public class RowMap implements Serializable {
 		this.oldData = new LinkedHashMap<>();
 		this.nextPosition = nextPosition;
 		this.pkColumns = pkColumns;
-        this.associatedRows = 1;
+		this.effectedRows = 1;
 		this.tableSchema = this.setColumnList(table.getColumnList());
 	}
 
 	public RowMap(String type, Table table, Long timestamp, List<String> pkColumns,
-            BinlogPosition nextPosition, List<Pattern> excludeColumns) {
+			BinlogPosition nextPosition, List<Pattern> excludeColumns) {
 		this(type, table, timestamp, pkColumns, nextPosition);
 		this.excludeColumns = excludeColumns;
+	}
+
+	public boolean isHeartbeat() {
+		return this.rowType == HEARTBEAT;
 	}
 
 	public String pkToJson(KeyFormat keyFormat) throws IOException {
@@ -238,27 +246,37 @@ public class RowMap implements Serializable {
 
 		avroData.put("database", this.database);
 		avroData.put("table", this.table);		
-		
+		avroData.put("timestamp", getTimestamp());
+		avroData.put("primary_key", this.pkColumns);
+
+		GenericRecord subRecord = avroData.getSubRecord("binlog_position");
+		avroData.put(subRecord, "offset", nextPosition.getOffset());
+		avroData.put(subRecord, "file", nextPosition.getFile());
+		avroData.put("binlog_position", subRecord);
+
 		// The schema buckets data types so we need to do the same
-		HashMap<String, HashMap<String, Object>> dataContainer = AvroData.sortData(tableSchema, data);
-		for (int i = 0; i < types.length; i++) {
-			String type = types[i];
-			// We only need "new_" if we're updating
-			String prefix = this.oldData.isEmpty() ? "" : "new_";			
-			
-			avroData.put(prefix + type, dataContainer.get(type));			
-		}
-		
-		if (!this.oldData.isEmpty()) {
-			HashMap<String, HashMap<String, Object>> oldDataContainer = AvroData.sortData(tableSchema, oldData);
-	
+		if (!this.data.isEmpty()) {
+			HashMap<String, HashMap<String, Object>> dataContainer = AvroData.sortData(tableSchema, data);
 			for (int i = 0; i < types.length; i++) {
 				String type = types[i];
-					
+				// We only need "new_" if we're updating
+				String prefix = this.oldData.isEmpty() ? "" : "new_";			
+
+				avroData.put(prefix + type, dataContainer.get(type));			
+			}
+
+		}
+
+		if (!this.oldData.isEmpty()) {
+			HashMap<String, HashMap<String, Object>> oldDataContainer = AvroData.sortData(tableSchema, oldData);
+
+			for (int i = 0; i < types.length; i++) {
+				String type = types[i];
+
 				avroData.put("old_" + type, oldDataContainer.get(type));
 			}
 		}
-		
+
 		return avroData;
 	}
 
@@ -305,13 +323,18 @@ public class RowMap implements Serializable {
 		return this.txCommit;
 	}
 
-    public int getAssociatedRows() {
-        return this.associatedRows;
-    }
+	public int getIndex() {
+		return this.index;
+	}
 
-    public void setAssociatedRows(int num) {
-        this.associatedRows = num;
-    }
+	public int getEffectedRows() {
+		return this.effectedRows;
+	}
+
+	public void setSegmentData(int index, int total) {
+		this.index = index;
+		this.effectedRows = total;
+	}
 
 	public String getDatabase() {
 		return database;
@@ -335,7 +358,7 @@ public class RowMap implements Serializable {
 		for (int i = 0; i < columnList.size(); i++) {
 			tableSchema.put(columnList.get(i).getName(), columnList.get(i).getType());
 		}
-		
+
 		return tableSchema;
 	}
 }

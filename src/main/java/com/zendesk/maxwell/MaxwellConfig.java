@@ -33,8 +33,13 @@ public class MaxwellConfig extends AbstractConfig {
     public int kinesisMaxBufferedTime;
     public int kinesisMaxConnections;
     public int kinesisRequestTimeout;
+    public int kinesisConnectTimeout;
     public String kinesisRegion;
     public String kinesisStreamName;
+    
+    public String consulUrl;
+    public String consulKey;
+    public String consulLockSession;
 
 	public String outputFile;
 	public String log_level;
@@ -89,8 +94,13 @@ public class MaxwellConfig extends AbstractConfig {
         parser.accepts( "kinesis_max_buffered_time", "optionally provide kinesis max buffered time").withOptionalArg();
         parser.accepts( "kinesis_max_connections", "optionally provide kinesis max connections").withOptionalArg();
         parser.accepts( "kinesis_request_timeout", "optionally provide kinesis request timeout").withOptionalArg();
+        parser.accepts( "kinesis_connect_timeout", "optionally provide kinesis connect timeout").withOptionalArg();
         parser.accepts( "kinesis_region", "optionally provide kinesis region").withOptionalArg();
         parser.accepts( "kinesis_stream_name", "optionally provide kinesis stream name").withOptionalArg();
+        
+        parser.accepts( "consul_url", "URL for Consul host" ).withOptionalArg();
+        parser.accepts( "consul_key", "Key for Consul lock" ).withOptionalArg();
+        parser.accepts( "consul_lock_session", "Consul session name" ).withOptionalArg();
 
 		parser.accepts( "__separator_4" );
 
@@ -197,11 +207,23 @@ public class MaxwellConfig extends AbstractConfig {
         if ( options.has("kinesis_request_timeout"))
             this.kinesisRequestTimeout = (int) options.valueOf("kinesis_request_timeout");
 
+        if ( options.has("kinesis_connect_timeout"))
+            this.kinesisConnectTimeout = (int) options.valueOf("kinesis_connect_timeout");
+
         if ( options.has("kinesis_region"))
             this.kinesisRegion = (String) options.valueOf("kinesis_region");
 
         if ( options.has("kinesis_stream_name"))
             this.kinesisStreamName = (String) options.valueOf("kinesis_stream_name");
+        
+        if ( options.has("consul_url"))
+        	this.consulUrl = (String) options.valueOf("consul_url");
+        
+        if ( options.has("consul_key"))
+        	this.consulKey = (String) options.valueOf("consul_key");
+        
+        if ( options.has("consul_lock_session"))
+        	this.consulLockSession = (String) options.valueOf("consul_lock_session");
 
 		if ( options.has("output_file"))
 			this.outputFile = (String) options.valueOf("output_file");
@@ -291,8 +313,14 @@ public class MaxwellConfig extends AbstractConfig {
         this.kinesisMaxBufferedTime = Integer.valueOf(p.getProperty("kinesis_max_buffered_time", "0"));
         this.kinesisMaxConnections = Integer.valueOf(p.getProperty("kinesis_max_connections", "0"));
         this.kinesisRequestTimeout = Integer.valueOf(p.getProperty("kinesis_request_timeout", "0"));
+        this.kinesisConnectTimeout = Integer.valueOf(p.getProperty("kinesis_connect_timeout", "0"));
         this.kinesisRegion = p.getProperty("kinesis_region");
         this.kinesisStreamName = p.getProperty("kinesis_stream_name");
+        
+        this.consulUrl = p.getProperty("consul_url");
+        this.consulKey = p.getProperty("consul_key");
+        this.consulLockSession = p.getProperty("consul_lock_session");
+        
 
 		if ( p.containsKey("log_level") )
 			this.log_level = parseLogLevel(p.getProperty("log_level"));
@@ -349,6 +377,9 @@ public class MaxwellConfig extends AbstractConfig {
             }
             if ( this.kinesisRequestTimeout == 0 ) {
                 usage("You must provide aws kinesis request timeout for using kinesis as output sink!");
+            }
+            if ( this.kinesisConnectTimeout == 0 ) {
+                usage("You must provide aws kinesis connect timeout for using kinesis as output sink!");
             }
             if ( this.kinesisRegion == null ) {
                 usage("You must provide aws kinesis region for using kinesis as output sink!");

@@ -92,8 +92,14 @@ password=maxwell
 #kinesis_max_buffered_time=placeholder
 #kinesis_max_connections=placeholder
 #kinesis_request_timeout=placeholder
+#kinesis_connect_timeout=placeholder
 #kinesis_region=placeholder
 #kinesis_stream_name=placeholder
+
+
+######### consul stuff ###############
+consul_url=http://local_ip_goes_here
+consul_key=test-lock
 
 
 ######### filter stuff ###############

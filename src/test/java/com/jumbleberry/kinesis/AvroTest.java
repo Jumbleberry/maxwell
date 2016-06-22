@@ -21,17 +21,20 @@ public class AvroTest {
 	private final Table table;
 		
 	private List<ColumnDef> columnList;	
+	private List<String> pkList;
 	
 	public AvroTest() {		
 		table = new Table();
 		table.setDatabase("test");		
-		table.rename("test");
-		createTableSchema(columnList);				
+		table.rename("test");		
+		createTableSchema(columnList);
+		pkList = Arrays.asList("id", "int_field");
+		table.setPKList(pkList);
 	}
 	
 	@Test
-	public void TestSerializeData() throws IOException {		
-		RowMap r1 = new RowMap("insert", table, 1L, new ArrayList<String>(), new BinlogPosition(3, "mysql.1"));
+	public void TestSerializeData() throws IOException {							
+		RowMap r1 = new RowMap("insert", table, 1L, pkList, new BinlogPosition(3, "mysql.1"));
 		createData(r1);
 		AvroData avroData1 = r1.toAvro();		
 		JSONObject s1 = new JSONObject(avroData1.getRecord().toString());		

@@ -5,6 +5,9 @@ import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.concurrent.TimeoutException;
 import com.djdch.log4j.StaticShutdownCallbackRegistry;
+import com.jumbleberry.kinesis.ConsulLock;
+import com.orbitz.consul.ConsulException;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -19,7 +22,7 @@ import com.zendesk.maxwell.schema.ddl.InvalidSchemaError;
 public class Maxwell {
 	private MysqlSavedSchema savedSchema;
 	private MaxwellConfig config;
-	private MaxwellContext context;
+	private MaxwellContext context;	
 	static final Logger LOGGER = LoggerFactory.getLogger(Maxwell.class);
 
 	private void initFirstRun(Connection connection, Connection schemaConnection) throws SQLException, IOException, InvalidSchemaError {
@@ -35,12 +38,13 @@ public class Maxwell {
 		this.context.setPosition(pos);
 	}
 
-	private void run(String[] argv) throws Exception {
+	private void run(String[] argv) throws Exception {		
 		this.config = new MaxwellConfig(argv);
 
 		if ( this.config.log_level != null )
-			MaxwellLogging.setLevel(this.config.log_level);
+			MaxwellLogging.setLevel(this.config.log_level);		
 
+		new ConsulLock(this.config.consulUrl, this.config.consulKey);
 		this.context = new MaxwellContext(this.config);
 
 		this.context.probeConnections();
@@ -75,7 +79,7 @@ public class Maxwell {
 
 		final MaxwellReplicator p = new MaxwellReplicator(this.savedSchema, producer, bootstrapper, this.context, this.context.getInitialPosition());
 
-		bootstrapper.resume(producer, p);
+		bootstrapper.resume(producer, p);		
 
 		try {
 			p.setFilter(context.buildFilter());
