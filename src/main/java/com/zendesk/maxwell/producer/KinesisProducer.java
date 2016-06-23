@@ -111,7 +111,7 @@ public class KinesisProducer extends AbstractProducer {
 	public void push(RowMap r) throws Exception {
 		try {
 			// Get partition key
-			String key = DigestUtils.sha256Hex(r.getTable() + r.pkAsConcatString());
+			String key = DigestUtils.sha256Hex(r.getDatabase() + ":" + r.getTable() + ":" + r.pkAsConcatString());
 
 			if (!r.isHeartbeat()) {
 
@@ -289,9 +289,12 @@ public class KinesisProducer extends AbstractProducer {
 						};
 
 					}).setUp(key, r);
-
+			
+			// Make sure all records from the same database end up on the same shard
+			String partitionKey = r.getDatabase();
+			
 			ListenableFuture<UserRecordResult> response =
-					this.kinesis.addUserRecord(streamName, key, data);
+					this.kinesis.addUserRecord(streamName, partitionKey, data);
 
 			Futures.addCallback(response, callBack);
 
