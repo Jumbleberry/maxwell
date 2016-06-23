@@ -72,14 +72,24 @@ public class ConsulLock
 	 */
 	public ConsulLock(String url, String key) throws InterruptedException {				
 		LOGGER.info("Trying to acquire Consul lock on host: " + url);
-		buildSession(url, key);
-
-		// Keep trying to get a lock for our session
-		while (!kvClient.acquireLock(kvKey, sessionId)) {			
-			Thread.sleep(lockWait);
-			renewSession();
-		}		
-
+		
+		for (;;) {
+			try {
+				buildSession(url, key);
+	
+				// Keep trying to get a lock for our session
+				while (!kvClient.acquireLock(kvKey, sessionId)) {			
+					Thread.sleep(lockWait);
+					renewSession();
+				}
+				
+				break;
+				
+			} catch (Exception e) {
+				Thread.sleep(lockWait);
+			}
+		}
+			
 		// Start the heartbeat
 		heartbeatStart = sessionRefresh = System.currentTimeMillis();
 		heartbeat.start();
