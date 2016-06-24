@@ -29,6 +29,19 @@ public class MaxwellConfig extends AbstractConfig {
 	public String kafkaPartitionKey;
 	public String bootstrapperType;
 
+    public String kinesisAccessKeyId;
+    public String kinesisSecretKey;
+    public int kinesisMaxBufferedTime;
+    public int kinesisMaxConnections;
+    public int kinesisRequestTimeout;
+    public int kinesisConnectTimeout;
+    public String kinesisRegion;
+    public String kinesisStreamName;
+    
+    public String consulUrl;
+    public String consulKey;
+    public String consulLockSession;
+
 	public String outputFile;
 	public String log_level;
 
@@ -70,13 +83,25 @@ public class MaxwellConfig extends AbstractConfig {
 
 		parser.accepts( "__separator_3" );
 
-		parser.accepts( "producer", "producer type: stdout|file|kafka" ).withRequiredArg();
+		parser.accepts( "producer", "producer type: stdout|file|kafka|kinesis" ).withRequiredArg();
 		parser.accepts( "output_file", "output file for 'file' producer" ).withRequiredArg();
 		parser.accepts( "kafka.bootstrap.servers", "at least one kafka server, formatted as HOST:PORT[,HOST:PORT]" ).withRequiredArg();
 		parser.accepts( "kafka_partition_by", "database|table|primary_key, kafka producer assigns partition by hashing the specified parameter").withRequiredArg();
 		parser.accepts( "kafka_partition_hash", "default|murmur3, hash function for partitioning").withRequiredArg();
 		parser.accepts( "kafka_topic", "optionally provide a topic name to push to. default: maxwell").withOptionalArg();
 		parser.accepts( "kafka_key_format", "how to format the kafka key; array|hash").withOptionalArg();
+        parser.accepts( "kinesis_access_key_id", "optionally provide kinesis access key id").withOptionalArg();
+        parser.accepts( "kinesis_secret_key", "optionally provide kinesis secret key").withOptionalArg();
+        parser.accepts( "kinesis_max_buffered_time", "optionally provide kinesis max buffered time").withOptionalArg();
+        parser.accepts( "kinesis_max_connections", "optionally provide kinesis max connections").withOptionalArg();
+        parser.accepts( "kinesis_request_timeout", "optionally provide kinesis request timeout").withOptionalArg();
+        parser.accepts( "kinesis_connect_timeout", "optionally provide kinesis connect timeout").withOptionalArg();
+        parser.accepts( "kinesis_region", "optionally provide kinesis region").withOptionalArg();
+        parser.accepts( "kinesis_stream_name", "optionally provide kinesis stream name").withOptionalArg();
+        
+        parser.accepts( "consul_url", "URL for Consul host" ).withOptionalArg();
+        parser.accepts( "consul_key", "Key for Consul lock" ).withOptionalArg();
+        parser.accepts( "consul_lock_session", "Consul session name" ).withOptionalArg();
 
 		parser.accepts( "__separator_4" );
 
@@ -168,6 +193,39 @@ public class MaxwellConfig extends AbstractConfig {
 		if ( options.has("kafka_partition_hash"))
 			this.kafkaPartitionHash = (String) options.valueOf("kafka_partition_hash");
 
+        if ( options.has("kinesis_access_key_id"))
+            this.kinesisAccessKeyId = (String) options.valueOf("kinesis_access_key_id");
+
+        if ( options.has("kinesis_secret_key"))
+            this.kinesisSecretKey = (String) options.valueOf("kinesis_secret_key");
+
+        if ( options.has("kinesis_max_buffered_time"))
+            this.kinesisMaxBufferedTime = (int) options.valueOf("kinesis_max_buffered_time");
+
+        if ( options.has("kinesis_max_connections"))
+            this.kinesisMaxConnections = (int) options.valueOf("kinesis_max_connections");
+
+        if ( options.has("kinesis_request_timeout"))
+            this.kinesisRequestTimeout = (int) options.valueOf("kinesis_request_timeout");
+
+        if ( options.has("kinesis_connect_timeout"))
+            this.kinesisConnectTimeout = (int) options.valueOf("kinesis_connect_timeout");
+
+        if ( options.has("kinesis_region"))
+            this.kinesisRegion = (String) options.valueOf("kinesis_region");
+
+        if ( options.has("kinesis_stream_name"))
+            this.kinesisStreamName = (String) options.valueOf("kinesis_stream_name");
+        
+        if ( options.has("consul_url"))
+        	this.consulUrl = (String) options.valueOf("consul_url");
+        
+        if ( options.has("consul_key"))
+        	this.consulKey = (String) options.valueOf("consul_key");
+        
+        if ( options.has("consul_lock_session"))
+        	this.consulLockSession = (String) options.valueOf("consul_lock_session");
+
 		if ( options.has("output_file"))
 			this.outputFile = (String) options.valueOf("output_file");
 
@@ -251,6 +309,20 @@ public class MaxwellConfig extends AbstractConfig {
 		this.blacklistDatabases = p.getProperty("blacklist_dbs");
 		this.blacklistTables = p.getProperty("blacklist_tables");
 
+        this.kinesisAccessKeyId = p.getProperty("kinesis_access_key_id");
+        this.kinesisSecretKey = p.getProperty("kinesis_secret_key");
+        this.kinesisMaxBufferedTime = Integer.valueOf(p.getProperty("kinesis_max_buffered_time", "0"));
+        this.kinesisMaxConnections = Integer.valueOf(p.getProperty("kinesis_max_connections", "0"));
+        this.kinesisRequestTimeout = Integer.valueOf(p.getProperty("kinesis_request_timeout", "0"));
+        this.kinesisConnectTimeout = Integer.valueOf(p.getProperty("kinesis_connect_timeout", "0"));
+        this.kinesisRegion = p.getProperty("kinesis_region");
+        this.kinesisStreamName = p.getProperty("kinesis_stream_name");
+        
+        this.consulUrl = p.getProperty("consul_url");
+        this.consulKey = p.getProperty("consul_key");
+        this.consulLockSession = p.getProperty("consul_lock_session");
+        
+
 		if ( p.containsKey("log_level") )
 			this.log_level = parseLogLevel(p.getProperty("log_level"));
 
@@ -291,7 +363,29 @@ public class MaxwellConfig extends AbstractConfig {
 		} else if ( this.producerType.equals("file")
 				&& this.outputFile == null) {
 			usageForOptions("please specify --output_file=FILE to use the file producer", "--producer", "--output_file");
-		}
+		} else if ( this.producerType.equals("kinesis") ) {
+            if ( this.kinesisAccessKeyId == null ) {
+                usageForOptions("You must provide aws kinesis access key id for using kinesis as output sink!", "--kinesis");
+            }
+            if ( this.kinesisSecretKey == null ) {
+                usageForOptions("You must provide aws kinesis secret key for using kinesis as output sink!", "--kinesis");
+            }
+            if ( this.kinesisMaxBufferedTime == 0 ) {
+                usageForOptions("You must provide aws kinesis max buffered time for using kinesis as output sink!", "--kinesis");
+            }
+            if ( this.kinesisMaxConnections == 0 ) {
+                usageForOptions("You must provide aws kinesis max connections for using kinesis as output sink!", "--kinesis");
+            }
+            if ( this.kinesisRequestTimeout == 0 ) {
+                usageForOptions("You must provide aws kinesis request timeout for using kinesis as output sink!", "--kinesis");
+            }
+            if ( this.kinesisConnectTimeout == 0 ) {
+                usageForOptions("You must provide aws kinesis connect timeout for using kinesis as output sink!", "--kinesis");
+            }
+            if ( this.kinesisRegion == null ) {
+                usageForOptions("You must provide aws kinesis region for using kinesis as output sink!", "--kinesis");
+            }
+        }
 
 		if ( !this.bootstrapperType.equals("async")
 				&& !this.bootstrapperType.equals("sync")

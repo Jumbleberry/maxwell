@@ -8,6 +8,7 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
+import com.jumbleberry.kinesis.ConsulLock;
 import com.zendesk.maxwell.BinlogPosition;
 import com.zendesk.maxwell.RunLoopProcess;
 import org.slf4j.Logger;
@@ -111,8 +112,11 @@ public class MysqlPositionStore extends RunLoopProcess implements Runnable {
 	}
 
 	public synchronized void set(BinlogPosition p) {
-		if ( position.get() == null || p.newerThan(position.get()) )
+		if ( position.get() == null || (p != null && p.newerThan(position.get())) )
 			position.set(p);
+
+		// But safe to renew session (heartbeats, etc). Position hasn't changed but we've done work
+		ConsulLock.setSessionPendingRenewal(true);
 	}
 
 	public void setSync(BinlogPosition p) throws SQLException {

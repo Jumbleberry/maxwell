@@ -1,0 +1,61 @@
+{
+  "namespace": "com.jumbleberry.kinesis",
+  "type": "record",
+  "name": "InsertMutation",
+  "fields": [
+	    {
+			"name": "database",
+			"type": "string"
+		},
+		{
+			"name": "table",
+			"type": "string"
+		},
+		{
+			"name": "timestamp",
+			"type": "long"
+		},
+		{
+			"name": "primary_key",
+			"type": { "type": "array", "items": "string" }
+		},
+ 		{
+            "name": "binlog_position",
+            "type": {
+                "name": "BinlogPosition",
+                "type": "record",
+                "fields": [
+                    {
+                        "name": "offset",
+                        "type": "long"
+                    },
+                    {
+                        "name": "file",
+                        "type": "string"
+                    }
+                ]
+            }
+        },		
+		{
+		    "name": "txid",
+		    "type": ["null", {"name": "Guid", "type": "fixed", "size":16}],
+		    "default": "null"
+		},
+		{
+			"name": "bytes",
+			"type": {"type": "map", "values": ["bytes", "null"]}
+		},
+		{
+			"name": "integers",
+			"type": {"type": "map", "values": ["int", "null"]}
+		},
+		{
+			"name": "strings",
+			"type": {"type": "map", "values": ["string", "null"]}
+		},
+		{
+			"name": "longs",
+			"type": {"type": "map", "values": ["long", "null"]}
+		}
+	]	
+}

@@ -5,6 +5,9 @@ import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.concurrent.TimeoutException;
 import com.djdch.log4j.StaticShutdownCallbackRegistry;
+import com.jumbleberry.kinesis.ConsulLock;
+import com.orbitz.consul.ConsulException;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -18,17 +21,18 @@ import com.zendesk.maxwell.schema.ddl.InvalidSchemaError;
 
 public class Maxwell {
 	private MaxwellConfig config;
-	private MaxwellContext context;
+	private MaxwellContext context;	
 	static final Logger LOGGER = LoggerFactory.getLogger(Maxwell.class);
 
-	private void run(String[] argv) throws Exception {
+	private void run(String[] argv) throws Exception {		
+		this.config = new MaxwellConfig(argv);
+		new ConsulLock(this.config.consulUrl, this.config.consulKey);
 		this.config = new MaxwellConfig(argv);
 
 		if ( this.config.log_level != null )
 			MaxwellLogging.setLevel(this.config.log_level);
 
 		this.context = new MaxwellContext(this.config);
-
 		this.context.probeConnections();
 
 		try ( Connection connection = this.context.getReplicationConnection(); Connection schemaConnection = context.getMaxwellConnectionPool().getConnection() ) {

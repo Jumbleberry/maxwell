@@ -11,6 +11,8 @@ import java.util.regex.Pattern;
 
 import com.google.code.or.binlog.impl.event.*;
 import com.google.code.or.net.TransportException;
+import com.jumbleberry.kinesis.ConsulLock;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -23,6 +25,7 @@ import com.zendesk.maxwell.schema.Schema;
 import com.zendesk.maxwell.schema.SchemaStore;
 import com.zendesk.maxwell.schema.Table;
 import com.zendesk.maxwell.schema.SchemaStoreException;
+import com.zendesk.maxwell.schema.columndef.ColumnDef;
 import com.zendesk.maxwell.schema.ddl.SchemaChange;
 import com.zendesk.maxwell.schema.ddl.ResolvedSchemaChange;
 
@@ -45,6 +48,8 @@ public class MaxwellReplicator extends RunLoopProcess {
 	private final MaxwellContext context;
 	protected final AbstractProducer producer;
 	protected final AbstractBootstrapper bootstrapper;
+	protected final String maxwellDatabase;
+	protected final String heartbeatTable = "heartbeat";
 
 	static final Logger LOGGER = LoggerFactory.getLogger(MaxwellReplicator.class);
 
@@ -68,6 +73,7 @@ public class MaxwellReplicator extends RunLoopProcess {
 		this.bootstrapper = bootstrapper;
 
 		this.context = ctx;
+		this.maxwellDatabase = ctx.getConfig().databaseName;
 		this.setBinlogPosition(start);
 	}
 
@@ -133,7 +139,7 @@ public class MaxwellReplicator extends RunLoopProcess {
 	}
 
 	protected boolean isMaxwellRow(RowMap row) {
-		return row.getDatabase().equals(this.context.getConfig().databaseName);
+		return row.getDatabase().equals(this.maxwellDatabase) && !row.isHeartbeat();
 	}
 
 	private BinlogPosition eventBinlogPosition(AbstractBinlogEventV4 event) {
@@ -246,7 +252,11 @@ public class MaxwellReplicator extends RunLoopProcess {
 						// to us starting on a WRITE_ROWS event -- we sync the schema position somewhere
 						// kinda unsafe.
 						processQueryEvent(qe);
-					} else {
+					} else if ( sql.toUpperCase().startsWith("INSERT INTO MYSQL.RDS_HEARTBEAT")) {
+                        // Ignore heart beat event
+                        break;
+                    }
+                     else {
 						LOGGER.warn("Unhandled QueryEvent inside transaction: " + qe);
 					}
 					break;
@@ -269,6 +279,12 @@ public class MaxwellReplicator extends RunLoopProcess {
 		BinlogEventV4 v4Event;
 
 		while (true) {
+
+			if (ConsulLock.isHeartbeatInterval()) {
+				LOGGER.info("Heartbeat event created");
+				return getHeartbeatRow();
+			}
+
 			if (rowBuffer != null && !rowBuffer.isEmpty()) {
 				return rowBuffer.removeFirst();
 			}
@@ -314,6 +330,15 @@ public class MaxwellReplicator extends RunLoopProcess {
 		return queue.poll(100, TimeUnit.MILLISECONDS);
 	}
 
+    private RowMap getHeartbeatRow() {
+		return new RowMap(
+				RowMap.HEARTBEAT, 
+				new Table(this.maxwellDatabase, RowMap.HEARTBEAT, "", new ArrayList<ColumnDef>(0), null), 
+				System.currentTimeMillis(), 
+				new ArrayList<String>(0),
+				new BinlogPosition(this.replicator.getBinlogPosition(), this.replicator.getBinlogFileName())
+			);
+	}
 
 	private void processQueryEvent(QueryEvent event) throws SchemaStoreException, InvalidSchemaError, SQLException {
 		// get charset of the alter event somehow? or just ignore it.

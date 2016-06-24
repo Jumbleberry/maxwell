@@ -1,13 +1,18 @@
 package com.zendesk.maxwell;
 
 import com.fasterxml.jackson.core.*;
-import com.google.code.or.common.glossary.Column;
+import com.jumbleberry.kinesis.AvroData;
+import com.zendesk.maxwell.schema.Table;
+import com.zendesk.maxwell.schema.columndef.ColumnDef;
+
+import org.apache.avro.generic.GenericRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.Serializable;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -21,6 +26,8 @@ public class RowMap implements Serializable {
 
 	static final Logger LOGGER = LoggerFactory.getLogger(RowMap.class);
 
+	public final static String HEARTBEAT = "heartbeat"; 
+
 	private final String rowType;
 	private final String database;
 	private final String table;
@@ -33,7 +40,11 @@ public class RowMap implements Serializable {
 	private final LinkedHashMap<String, Object> data;
 	private final LinkedHashMap<String, Object> oldData;
 	private final List<String> pkColumns;
+	private int effectedRows;
+	private int index;
 	private List<Pattern> excludeColumns;
+
+	private final HashMap<String, String> tableSchema;
 
 	private static final JsonFactory jsonFactory = new JsonFactory();
 
@@ -63,23 +74,29 @@ public class RowMap implements Serializable {
 				}
 			};
 
-	public RowMap(String type, String database, String table, Long timestamp, List<String> pkColumns,
+	public RowMap(String type, Table table, Long timestamp, List<String> pkColumns,
 			BinlogPosition nextPosition) {
 		this.rowType = type;
-		this.database = database;
-		this.table = table;
+		this.database = table.getDatabase();
+		this.table = table.getName();
 		this.timestamp = timestamp;
 		this.data = new LinkedHashMap<>();
 		this.oldData = new LinkedHashMap<>();
 		this.nextPosition = nextPosition;
 		this.pkColumns = pkColumns;
-		this.approximateSize = 100L; // more or less 100 bytes of overhead
+        this.approximateSize = 100L; // more or less 100 bytes of overhead
+		this.effectedRows = 1;
+		this.tableSchema = this.setColumnList(table.getColumnList());
 	}
 
-	public RowMap(String type, String database, String table, Long timestamp, List<String> pkColumns,
-            BinlogPosition nextPosition, List<Pattern> excludeColumns) {
-		this(type, database, table, timestamp, pkColumns, nextPosition);
+	public RowMap(String type, Table table, Long timestamp, List<String> pkColumns,
+			BinlogPosition nextPosition, List<Pattern> excludeColumns) {
+		this(type, table, timestamp, pkColumns, nextPosition);
 		this.excludeColumns = excludeColumns;
+	}
+
+	public boolean isHeartbeat() {
+		return this.rowType == HEARTBEAT;
 	}
 
 	public String pkToJson(KeyFormat keyFormat) throws IOException {
@@ -227,6 +244,46 @@ public class RowMap implements Serializable {
 		return jsonFromStream();
 	}
 
+	public AvroData toAvro() throws IOException {
+		String[] types = AvroData.getSchemaDataTypes();		
+		AvroData avroData = new AvroData(rowType);		
+
+		avroData.put("database", this.database);
+		avroData.put("table", this.table);		
+		avroData.put("timestamp", getTimestamp());
+		avroData.put("primary_key", this.pkColumns);
+
+		GenericRecord subRecord = avroData.getSubRecord("binlog_position");
+		avroData.put(subRecord, "offset", nextPosition.getOffset());
+		avroData.put(subRecord, "file", nextPosition.getFile());
+		avroData.put("binlog_position", subRecord);
+
+		// The schema buckets data types so we need to do the same
+		if (!this.data.isEmpty()) {
+			HashMap<String, HashMap<String, Object>> dataContainer = AvroData.sortData(tableSchema, data);
+			for (int i = 0; i < types.length; i++) {
+				String type = types[i];
+				// We only need "new_" if we're updating
+				String prefix = this.oldData.isEmpty() ? "" : "new_";			
+
+				avroData.put(prefix + type, dataContainer.get(type));			
+			}
+
+		}
+
+		if (!this.oldData.isEmpty()) {
+			HashMap<String, HashMap<String, Object>> oldDataContainer = AvroData.sortData(tableSchema, oldData);
+
+			for (int i = 0; i < types.length; i++) {
+				String type = types[i];
+
+				avroData.put("old_" + type, oldDataContainer.get(type));
+			}
+		}
+
+		return avroData;
+	}
+
 	private String jsonFromStream() {
 		ByteArrayOutputStream b = byteArrayThreadLocal.get();
 		String s = b.toString();
@@ -293,6 +350,19 @@ public class RowMap implements Serializable {
 		return this.txCommit;
 	}
 
+	public int getIndex() {
+		return this.index;
+	}
+
+	public int getEffectedRows() {
+		return this.effectedRows;
+	}
+
+	public void setSegmentData(int index, int total) {
+		this.index = index;
+		this.effectedRows = total;
+	}
+
 	public String getDatabase() {
 		return database;
 	}
@@ -307,5 +377,15 @@ public class RowMap implements Serializable {
 
 	public boolean hasData(String name) {
 		return this.data.containsKey(name);
+	}
+
+	private HashMap<String, String> setColumnList(List<ColumnDef> columnList) {				
+		HashMap<String, String> tableSchema = new HashMap<String, String>();
+
+		for (int i = 0; i < columnList.size(); i++) {
+			tableSchema.put(columnList.get(i).getName(), columnList.get(i).getType());
+		}
+
+		return tableSchema;
 	}
 }
