@@ -16,13 +16,14 @@ import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.clients.producer.Callback;
 import org.apache.kafka.clients.producer.RecordMetadata;
+import org.apache.kafka.common.errors.RecordTooLargeException;
 import org.apache.kafka.common.serialization.ByteArraySerializer;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 class KafkaCallback implements Callback {
-	static final Logger LOGGER = LoggerFactory.getLogger(MaxwellKafkaProducer.class);
+	public static final Logger LOGGER = LoggerFactory.getLogger(MaxwellKafkaProducer.class);
 	private InflightMessageList inflightMessages;
 	private final MaxwellContext context;
 	private final BinlogPosition position;
@@ -42,32 +43,48 @@ class KafkaCallback implements Callback {
 	@Override
 	public void onCompletion(RecordMetadata md, Exception e) {
 		if ( e != null ) {
-			e.printStackTrace();
-		} else {
-			try {
-				if ( LOGGER.isDebugEnabled()) {
-					LOGGER.debug("->  key:" + key + ", partition:" +md.partition() + ", offset:" + md.offset());
-					LOGGER.debug("   " + this.json);
-					LOGGER.debug("   " + position);
-					LOGGER.debug("");
-				}
-				if ( isTXCommit ) {
-					BinlogPosition newPosition = inflightMessages.completeMessage(position);
+			if ( e instanceof RecordTooLargeException ) {
+				LOGGER.error("RecordTooLargeException @ " + position + " -- " + key);
+				LOGGER.error(e.getLocalizedMessage());
+				LOGGER.error("Considering raising max.request.size broker-side.");
 
-					if ( newPosition != null )
-						context.setPosition(newPosition);
+				markCompleted();
+			} else {
+				throw new RuntimeException(e);
+			}
+		} else {
+			if ( LOGGER.isDebugEnabled()) {
+				LOGGER.debug("->  key:" + key + ", partition:" +md.partition() + ", offset:" + md.offset());
+				LOGGER.debug("   " + this.json);
+				LOGGER.debug("   " + position);
+				LOGGER.debug("");
+			}
+
+			markCompleted();
+		}
+	}
+
+	private void markCompleted() {
+		if ( isTXCommit ) {
+			BinlogPosition newPosition = inflightMessages.completeMessage(position);
+
+			if ( newPosition != null ) {
+				try {
+					context.setPosition(newPosition);
+				} catch ( SQLException e ) {
+					e.printStackTrace();
 				}
-			} catch (SQLException e1) {
-				e1.printStackTrace();
 			}
 		}
 	}
+
 }
 
 public class MaxwellKafkaProducer extends AbstractProducer {
 	static final Object KAFKA_DEFAULTS[] = {
 		"compression.type", "gzip",
-		"metadata.fetch.timeout.ms", 5000
+		"metadata.fetch.timeout.ms", 5000,
+		"retries", 1
 	};
 	private final InflightMessageList inflightMessages;
 	private final KafkaProducer<String, String> kafka;
@@ -111,7 +128,14 @@ public class MaxwellKafkaProducer extends AbstractProducer {
 		if ( r.isTXCommit() )
 			inflightMessages.addMessage(r.getPosition());
 
-		kafka.send(record, new KafkaCallback(inflightMessages, r.getPosition(), r.isTXCommit(), this.context, key, value));
+
+		/* if debug logging isn't enabled, release the reference to `value`, which can ease memory pressure somewhat */
+		if ( !KafkaCallback.LOGGER.isDebugEnabled() )
+			value = null;
+
+		KafkaCallback callback = new KafkaCallback(inflightMessages, r.getPosition(), r.isTXCommit(), this.context, key, value);
+
+		kafka.send(record, callback);
 	}
 
 	@Override

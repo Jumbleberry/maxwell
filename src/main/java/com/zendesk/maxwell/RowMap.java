@@ -20,6 +20,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Pattern;
 
+
 public class RowMap implements Serializable {
 	public enum KeyFormat { HASH, ARRAY }
 
@@ -27,7 +28,7 @@ public class RowMap implements Serializable {
 
 	public final static String HEARTBEAT = "heartbeat"; 
 
-	public final String rowType;
+	private final String rowType;
 	private final String database;
 	private final String table;
 	private final Long timestamp;
@@ -47,29 +48,31 @@ public class RowMap implements Serializable {
 
 	private static final JsonFactory jsonFactory = new JsonFactory();
 
+	private long approximateSize;
+
 	private static final ThreadLocal<ByteArrayOutputStream> byteArrayThreadLocal =
 			new ThreadLocal<ByteArrayOutputStream>(){
-		@Override
-		protected ByteArrayOutputStream initialValue() {
-			return new ByteArrayOutputStream();
-		}
-	};
+				@Override
+				protected ByteArrayOutputStream initialValue() {
+					return new ByteArrayOutputStream();
+				}
+			};
 
 	private static final ThreadLocal<JsonGenerator> jsonGeneratorThreadLocal =
 			new ThreadLocal<JsonGenerator>() {
-		@Override
-		protected JsonGenerator initialValue() {
-			JsonGenerator g = null;
-			try {
-				g = jsonFactory.createGenerator(byteArrayThreadLocal.get());
-			} catch (IOException e) {
-				LOGGER.error("error initializing jsonGenerator", e);
-				return null;
-			}
-			g.setRootValueSeparator(null);
-			return g;
-		}
-	};
+				@Override
+				protected JsonGenerator initialValue() {
+					JsonGenerator g = null;
+					try {
+						g = jsonFactory.createGenerator(byteArrayThreadLocal.get());
+					} catch (IOException e) {
+						LOGGER.error("error initializing jsonGenerator", e);
+						return null;
+					}
+					g.setRootValueSeparator(null);
+					return g;
+				}
+			};
 
 	public RowMap(String type, Table table, Long timestamp, List<String> pkColumns,
 			BinlogPosition nextPosition) {
@@ -81,6 +84,7 @@ public class RowMap implements Serializable {
 		this.oldData = new LinkedHashMap<>();
 		this.nextPosition = nextPosition;
 		this.pkColumns = pkColumns;
+        this.approximateSize = 100L; // more or less 100 bytes of overhead
 		this.effectedRows = 1;
 		this.tableSchema = this.setColumnList(table.getColumnList());
 	}
@@ -291,8 +295,29 @@ public class RowMap implements Serializable {
 		return this.data.get(key);
 	}
 
+
+	public long getApproximateSize() {
+		return approximateSize;
+	}
+
+	private long approximateKVSize(String key, Object value) {
+		long length = 0;
+		length += 40; // overhead.  Whynot.
+		length += key.length() * 2;
+
+		if ( value instanceof String ) {
+			length += ((String) value).length() * 2;
+		} else {
+			length += 64;
+		}
+
+		return length;
+	}
+
 	public void putData(String key, Object value) {
-		this.data.put(key,  value);
+		this.data.put(key, value);
+
+		this.approximateSize += approximateKVSize(key, value);
 	}
 
 	public Object getOldData(String key) {
@@ -300,7 +325,9 @@ public class RowMap implements Serializable {
 	}
 
 	public void putOldData(String key, Object value) {
-		this.oldData.put(key,  value);
+		this.oldData.put(key, value);
+
+		this.approximateSize += approximateKVSize(key, value);
 	}
 
 	public BinlogPosition getPosition() {

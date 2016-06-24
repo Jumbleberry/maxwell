@@ -72,9 +72,9 @@ public class KinesisProducer extends AbstractProducer {
 			String kinesisStreamName
 			) {
 		super(context);
-		
+
 		this.statsd = new NonBlockingStatsDClient("com.kinesis", "127.0.0.1", 8125);
-		
+
 		this.streamName = kinesisStreamName;
 
 		// Set up AWS system properties
@@ -289,10 +289,10 @@ public class KinesisProducer extends AbstractProducer {
 						};
 
 					}).setUp(key, r);
-			
+
 			// Make sure all records from the same database end up on the same shard
 			String partitionKey = r.getDatabase();
-			
+
 			ListenableFuture<UserRecordResult> response =
 					this.kinesis.addUserRecord(streamName, partitionKey, data);
 

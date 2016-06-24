@@ -23,7 +23,7 @@ public class RowMapBufferTest {
 		};		
 		table.setColumnList(Arrays.asList(colList));
 		
-		RowMapBuffer buffer = new RowMapBuffer(2);
+		RowMapBuffer buffer = new RowMapBuffer(2, 250);
 
 		RowMap r;
 		buffer.add(new RowMap("insert", table, 1L, new ArrayList<String>(), new BinlogPosition(3, "mysql.1")));
