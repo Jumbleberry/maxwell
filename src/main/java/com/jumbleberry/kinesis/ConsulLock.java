@@ -39,9 +39,11 @@ public class ConsulLock
 	private static long heartbeatStart = 0;
 
 	class ConsulHeartbeat extends Thread {
-		public void run() throws ConsulException {
+		public void run() {
 			for (;;) {					
 				try {
+					Thread.sleep(Math.max(Math.min(lockDelay, lockTtl) * 500, 1000));
+					
 					// Renew the heartbeat session if renewal is pending
 					if (ConsulLock.isSessionPendingRenewal())
 						ConsulLock.renewSession();
@@ -50,10 +52,10 @@ public class ConsulLock
 					if (!ConsulLock.hasLockSession())
 						break;
 
-					Thread.sleep(Math.max(Math.min(lockDelay, lockTtl) * 500, 1000));
 				} catch (Exception e) {				
 					LOGGER.error("ConsulHeartbeat: " + e.getMessage());		
-				}		
+				}
+				
 			}	
 
 			// We lost the lock
@@ -118,14 +120,8 @@ public class ConsulLock
 			@Override	
 			public void uncaughtException(Thread t, Throwable e) {
 				LOGGER.error("Lock lost due to inactivity");
-				System.exit(1);
-			}
-		});
-
-		Runtime.getRuntime().addShutdownHook(new Thread() {
-			public void run() {
-				LOGGER.error("Releasing Consul lock during shutdown sequence");
 				ConsulLock.releaseSession(true);
+				System.exit(1);
 			}
 		});
 	}
