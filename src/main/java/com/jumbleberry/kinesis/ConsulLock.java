@@ -139,7 +139,14 @@ public class ConsulLock
 		if (kvClient == null)
 			throw new ConsulException("KeyValueClient not initialized");
 
-		return kvClient.releaseLock(kvKey, sessionId);		
+		try {
+			return kvClient.releaseLock(kvKey, sessionId);
+			
+		} catch (ConsulException e) {
+			LOGGER.error(e.getMessage());
+		}
+		
+		return false;
 	}
 
 	/**
@@ -151,11 +158,16 @@ public class ConsulLock
 	public static boolean releaseSession(boolean force) throws ConsulException {
 		if (sessionClient == null)
 			throw new ConsulException("SessionClient not initialized");
-
-		if (sessionId != null && force) {
-			sessionClient.destroySession(sessionId);
-			sessionRefresh = heartbeatStart = 0;
-		}		
+		
+		try {
+			if (sessionId != null && force) {
+				sessionClient.destroySession(sessionId);
+				sessionRefresh = heartbeatStart = 0;
+			}
+			
+		} catch (ConsulException e) {
+			LOGGER.error(e.getMessage());
+		}
 
 		return releaseLock();
 	}	
@@ -168,9 +180,23 @@ public class ConsulLock
 	public static boolean hasLockSession() throws ConsulException {
 		if (kvClient == null)
 			throw new ConsulException("KeyValueClient not initialized");		
-
-		Value v = kvClient.getValue(kvKey).orNull();
-		return v != null && sessionId != null && sessionId.equals(v.getSession().orNull());
+		
+		boolean ownsLock = true;
+		
+		try {
+			// Otherwise, check if we're actually still the session owner
+			Value v = kvClient.getValue(kvKey).orNull();
+			ownsLock = v != null && sessionId != null && sessionId.equals(v.getSession().orNull());
+		
+		} catch (ConsulException e) {
+			LOGGER.error(e.getMessage());
+			
+			// Session must be expired if not refreshed within TTL
+			if ((sessionRefresh + lockTtl * 1000) < System.currentTimeMillis())
+				ownsLock = false;
+		}
+		
+		return ownsLock;
 	}
 
 	/**
@@ -196,10 +222,14 @@ public class ConsulLock
 		if (sessionClient == null)
 			throw new ConsulException("SessionClient not initialized");
 
-
-		sessionClient.renewSession(sessionId);
-		sessionRefresh = System.currentTimeMillis();
-		setSessionPendingRenewal(false);
+		try {
+			sessionClient.renewSession(sessionId);
+			sessionRefresh = System.currentTimeMillis();
+			setSessionPendingRenewal(false);
+			
+		} catch (ConsulException e) {
+			LOGGER.error(e.getMessage());
+		}
 	}
 
 	/**
