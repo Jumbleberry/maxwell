@@ -243,7 +243,7 @@ public class KinesisProducer extends AbstractProducer {
 		try {
 			// Use JSON instead of AVRO as data format
 			// ByteBuffer data = ByteBuffer.wrap(r.toAvro().toByteArray());
-			ByteBuffer data = ByteBuffer.wrap(r.toString().getBytes("UTF-8"));
+			ByteBuffer data = ByteBuffer.wrap(r.toJSON().getBytes("UTF-8"));
 			
 			statsd.histogram("producer.rowmap.size", data.remaining(), getTags(r));
 
