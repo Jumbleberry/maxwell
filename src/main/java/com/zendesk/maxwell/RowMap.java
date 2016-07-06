@@ -170,6 +170,28 @@ public class RowMap implements Serializable {
 			return "None";
 		return keys;
 	}
+	
+	private void writePkToJson() throws IOException {
+		JsonGenerator g = jsonGeneratorThreadLocal.get();
+		
+		g.writeArrayFieldStart("pk");
+		for (String pk : pkColumns)
+			g.writeString(pk);
+		g.writeEndArray();
+		
+		return;
+	}
+	
+	private void writePositionToJson() throws IOException {
+		JsonGenerator g = jsonGeneratorThreadLocal.get();
+
+		g.writeObjectFieldStart("binlog_position");
+		g.writeStringField("file", nextPosition.getFile());
+		g.writeNumberField("offset", nextPosition.getOffset());
+		g.writeEndObject();
+		
+		return;
+	}
 
 	private void writeMapToJSON(String jsonMapName, LinkedHashMap<String, Object> data, boolean includeNullField) throws IOException {
 		JsonGenerator generator = jsonGeneratorThreadLocal.get();
@@ -208,6 +230,8 @@ public class RowMap implements Serializable {
 		g.writeStringField("table", this.table);
 		g.writeStringField("type", this.rowType);
 		g.writeNumberField("ts", this.timestamp);
+		writePkToJson();
+		writePositionToJson();
 
 		/* TODO: allow xid and commit to be configurable in the output */
 		if ( this.xid != null )
