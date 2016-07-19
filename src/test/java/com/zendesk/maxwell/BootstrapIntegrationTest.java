@@ -1,5 +1,6 @@
 package com.zendesk.maxwell;
 
+import org.junit.Ignore;
 import org.junit.Test;
 
 import java.sql.Timestamp;
@@ -8,7 +9,7 @@ import java.util.*;
 import static org.hamcrest.CoreMatchers.*;
 import static org.junit.Assert.assertThat;
 
-public class BootstrapIntegrationTest extends MaxwellTestWithIsolatedServer {
+@Ignore public class BootstrapIntegrationTest extends MaxwellTestWithIsolatedServer {
 	@Test
 	public void testSingleRowBootstrap() throws Exception {
 		runJSON("json/bootstrap-single-row");

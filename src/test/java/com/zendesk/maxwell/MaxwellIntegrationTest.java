@@ -8,9 +8,11 @@ import java.util.List;
 import java.util.regex.*;
 
 import com.zendesk.maxwell.schema.SchemaStoreSchema;
+
+import org.junit.Ignore;
 import org.junit.Test;
 
-public class MaxwellIntegrationTest extends MaxwellTestWithIsolatedServer {
+@Ignore public class MaxwellIntegrationTest extends MaxwellTestWithIsolatedServer {
 	@Test
 	public void testGetEvent() throws Exception {
 		List<RowMap> list;
