@@ -56,7 +56,9 @@ public class KinesisProducer extends AbstractProducer {
 		public RowMapContext(RowMap r) {
 			this.remainingRows = new AtomicInteger(r.getEffectedRows());
 			this.isTxCommit = r.isTXCommit();
-			this.Xid = r.getXid();
+			
+			if (r.getXid() != null)
+				this.Xid = r.getXid();
 		}
 	}
 
